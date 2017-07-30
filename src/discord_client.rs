@@ -1,5 +1,6 @@
 use std::sync::{Arc, RwLock};
 use std::thread;
+use std::time::Duration;
 
 use discord;
 use discord::{ChannelRef, State};
@@ -11,7 +12,6 @@ use message::{Bus, BusSender, Message};
 
 
 pub struct Discord {
-    client: discord::Discord,
     state: Arc<RwLock<State>>,
 }
 
@@ -25,34 +25,10 @@ impl Discord {
         let (conn, ready) = client.connect()?;
         let state = Arc::new(RwLock::new(State::new(ready)));
         spawn_listener(conn, bus.sender(), state.clone(), logger.new(o!()));
+        spawn_actor(logger, client, bus, state.clone());
         Ok(Discord {
-            client,
             state,
         })
-    }
-
-    pub fn send(&self, message: Message) -> Result<()> {
-        if message.channel.starts_with('#') {
-            if let Some(channel) = self.find_channel(&message.channel[1..]) {
-                let m = format!("<{}> {}", message.nickname, message.content);
-                self.client.send_message(channel, &m, "", false)?;
-            }
-            Ok(())
-        } else {
-            Ok(())
-        }
-    }
-
-    fn find_channel(&self, channel: &str) -> Option<ChannelId> {
-        let s = self.state.read().expect("unexpected poisoned lock");
-        for srv in s.servers() {
-            for ch in &srv.channels {
-                if ch.name == channel {
-                    return Some(ch.id);
-                }
-            }
-        }
-        None
     }
 
     pub fn channels(&self) -> Vec<PublicChannel> {
@@ -109,6 +85,47 @@ fn spawn_listener(
             }
         }
     });
+}
+
+fn spawn_actor(
+    logger: slog::Logger,
+    client: discord::Discord,
+    bus: Bus,
+    state: Arc<RwLock<State>>,
+) {
+    thread::spawn(move || {
+        for (_, msg) in bus {
+            if msg.channel.starts_with('#') {
+                let s = state.read().expect("unexpected poisoned lock");
+                if let Some(channel) = find_channel(&s, &msg.channel[1..]) {
+                    let m = format!("<{}> {}", msg.nickname, msg.content);
+                    while let Err(e) = client.send_message(channel, &m, "", false) {
+                        use discord::Error::*;
+                        match e {
+                            Hyper(..) | WebSocket(..) => {
+                                thread::sleep(Duration::from_millis(100));
+                            }
+                            _ => {
+                                error!(logger, "failed to send a message: {}", e);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+fn find_channel(s: &State, channel: &str) -> Option<ChannelId> {
+    for srv in s.servers() {
+        for ch in &srv.channels {
+            if ch.name == channel {
+                return Some(ch.id);
+            }
+        }
+    }
+    None
 }
 
 fn find_nickname(members: &[Member], id: UserId) -> Option<&str> {

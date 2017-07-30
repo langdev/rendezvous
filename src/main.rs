@@ -63,13 +63,11 @@ fn run() -> Result<()> {
     let irc_bus_id = irc_bus.id;
     let irc = irc_client::Irc::from_config(log.new(o!()), irc_bus, cfg)?;
 
-    for (id, msg) in bus.receiver {
+    for (id, msg) in bus {
         if id == discord_bus_id {
             info!(log, "from Discord {} {}: {}", msg.channel, msg.nickname, msg.content);
-            irc.send(msg)?;
         } else if id == irc_bus_id {
             info!(log, "from IRC {} {}: {}", msg.channel, msg.nickname, msg.content);
-            discord.send(msg)?;
         }
     }
 

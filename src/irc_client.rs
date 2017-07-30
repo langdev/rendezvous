@@ -51,14 +51,20 @@ impl Irc {
                 }
             }
         });
+        spawn_actor(logger, client.clone(), bus);
         Ok(Irc {
             client,
         })
     }
+}
 
-    pub fn send(&self, message: Message) -> Result<()> {
-        let m = format!("<{}> {}", message.nickname, message.content);
-        self.client.send(Command::PRIVMSG(message.channel, m))?;
-        Ok(())
-    }
+fn spawn_actor(logger: slog::Logger, client: IrcServer, bus: Bus) {
+    thread::spawn(move || {
+        for (_, msg) in bus {
+            let m = format!("<{}> {}", msg.nickname, msg.content);
+            if let Err(e) = client.send(Command::PRIVMSG(msg.channel, m)) {
+                error!(logger, "failed to send a message: {}", e);
+            }
+        }
+    });
 }

@@ -10,7 +10,7 @@ type Receiver = multiqueue::BroadcastReceiver<(BusId, Message)>;
 pub struct Bus {
     pub id: BusId,
     sender: Sender,
-    pub receiver: Receiver,
+    receiver: Receiver,
 }
 
 impl Bus {
@@ -61,6 +61,44 @@ impl PartialEq for Bus {
         self.id == other.id
     }
 }
+
+impl IntoIterator for Bus {
+    type Item = (BusId, Message);
+    type IntoIter = BusIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        BusIter {
+            bus_id: self.id,
+            recv: self.receiver,
+        }
+    }
+}
+
+pub struct BusIter {
+    bus_id: BusId,
+    recv: multiqueue::BroadcastReceiver<(BusId, Message)>,
+}
+
+impl Iterator for BusIter {
+    type Item = (BusId, Message);
+
+    #[inline(always)]
+    fn next(&mut self) -> Option<(BusId, Message)> {
+        loop {
+            return match self.recv.recv() {
+                Ok(val) => {
+                    if val.0 == self.bus_id {
+                        continue;
+                    }
+                    Some(val)
+                },
+                Err(_) => None,
+            };
+        }
+    }
+}
+
+
 
 pub struct BusSender {
     id: BusId,

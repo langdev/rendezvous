@@ -1,6 +1,7 @@
 use std::thread;
 
-use futures::{Future, Stream, lazy};
+use futures::{BoxFuture, Future, Stream, lazy};
+use futures::future::{self, Loop, loop_fn};
 use irc::client::prelude::*;
 use slog;
 
@@ -13,7 +14,7 @@ pub struct Irc {
 }
 
 impl Irc {
-    pub fn from_config<L>(logger: L, bus: Bus, cfg: Config) -> impl Future<Item=Irc, Error=Error>
+    pub fn from_config<L>(logger: L, bus: Bus, cfg: Config) -> BoxFuture<Irc, Error>
         where L: Into<Option<slog::Logger>>
     {
         let logger = logger.into().unwrap_or_else(|| slog::Logger::root(slog::Discard, o!()));
@@ -32,7 +33,7 @@ impl Irc {
             Irc {
                 client,
             }
-        })
+        }).boxed()
     }
 }
 
@@ -40,8 +41,8 @@ fn listen_messages(
     client: IrcServer,
     log: slog::Logger,
     sender: BusSender,
-) -> impl Future<Item=(), Error=Error> {
-    client.stream().for_each(move |message| {
+) -> BoxFuture<(), Error> {
+    client.stream().map_err(From::from).boxed().for_each(move |message| {
         debug!(log, "{}", message);
         let nickname = message.source_nickname()
             .map(String::from)
@@ -53,19 +54,19 @@ fn listen_messages(
                     channel: target,
                     content,
                 });
-                while let Err(e) = sender.try_send(m) {
+                let s = sender.clone();
+                loop_fn(sender.try_send(m), move |res| {
                     use std::sync::mpsc::TrySendError::*;
-                    m = match e {
-                        Full(p) => p,
-                        Disconnected(_) => { panic!("bus closed"); }
-                    };
-                    thread::yield_now();
-                }
+                    Ok(match res {
+                        Ok(..) => Loop::Break(()),
+                        Err(Full(p)) => Loop::Continue(s.try_send(p)),
+                        Err(Disconnected(_)) => { panic!("bus closed"); }
+                    })
+                }).boxed()
             }
-            _ => { }
+            _ => { future::ok(()).boxed() }
         }
-        Ok(())
-    }).map_err(From::from)
+    }).boxed()
 }
 
 fn spawn_actor(logger: slog::Logger, client: IrcServer, bus: Bus) {

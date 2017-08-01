@@ -91,7 +91,7 @@ impl Iterator for BusIter {
 }
 
 
-
+#[derive(Clone)]
 pub struct BusSender {
     id: BusId,
     sender: Sender,

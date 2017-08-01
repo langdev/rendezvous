@@ -10,11 +10,13 @@ name = "rendezvous"
 path = "src/main.rs"
 
 [dependencies]
-irc = "0.11.6"
+futures = "0.1.14"
+irc = "0.12.3"
 multiqueue = "0.3"
 slog = "2"
 slog-async = "2"
 slog-term = "2"
+tokio-core = "0.1.9"
 
 [dependencies.discord]
 version = "0.8"

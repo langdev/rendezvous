@@ -22,14 +22,11 @@ impl Irc {
         let c = client.clone();
         let sender = bus.sender();
         thread::spawn(move || {
-            let mut nickname = String::new();
-            for message in c.iter() {
-                let message = message.unwrap();
+            c.for_each_incoming(|message| {
                 debug!(log, "{}", message);
-                nickname.clear();
-                if let Some(nick) = message.source_nickname() {
-                    nickname.push_str(nick);
-                }
+                let nickname = message.source_nickname()
+                    .map(String::from)
+                    .unwrap_or_else(String::new);
                 match message.command {
                     Command::PRIVMSG(target, content) => {
                         let mut m = Message::MessageCreated(MessageCreated {
@@ -45,11 +42,10 @@ impl Irc {
                             };
                             thread::yield_now();
                         }
-                        nickname = String::new();
                     }
                     _ => { }
                 }
-            }
+            }).unwrap();
         });
         spawn_actor(logger, client.clone(), bus);
         Ok(Irc {

@@ -3,6 +3,7 @@ name = "rendezvous"
 version = "0.1.0"
 dependencies = [
  "discord 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "error-chain 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)",
  "irc 0.12.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "multiqueue 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",

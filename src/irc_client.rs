@@ -4,7 +4,7 @@ use irc::client::prelude::*;
 use slog;
 
 use ::Result;
-use message::{Bus, Message};
+use message::{Bus, Message, Payload};
 
 
 pub struct Irc {
@@ -60,9 +60,9 @@ impl Irc {
 
 fn spawn_actor(logger: slog::Logger, client: IrcServer, bus: Bus) {
     thread::spawn(move || {
-        for (_, msg) in bus {
-            let m = format!("<{}> {}", msg.nickname, msg.content);
-            if let Err(e) = client.send(Command::PRIVMSG(msg.channel, m)) {
+        for Payload { message, .. } in bus {
+            let m = format!("<{}> {}", message.nickname, message.content);
+            if let Err(e) = client.send(Command::PRIVMSG(message.channel, m)) {
                 error!(logger, "failed to send a message: {}", e);
             }
         }

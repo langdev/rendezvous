@@ -61,12 +61,13 @@ fn run() -> Result<()> {
     };
     let irc_bus = bus.add();
     let irc_bus_id = irc_bus.id;
-    let irc = irc_client::Irc::from_config(log.new(o!()), irc_bus, cfg)?;
+    irc_client::Irc::from_config(log.new(o!()), irc_bus, cfg)?;
 
-    for (id, msg) in bus {
-        if id == discord_bus_id {
+    for payload in bus {
+        let msg = payload.message;
+        if payload.sender == discord_bus_id {
             info!(log, "from Discord {} {}: {}", msg.channel, msg.nickname, msg.content);
-        } else if id == irc_bus_id {
+        } else if payload.sender == irc_bus_id {
             info!(log, "from IRC {} {}: {}", msg.channel, msg.nickname, msg.content);
         }
     }

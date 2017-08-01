@@ -3,8 +3,8 @@ use std::sync::mpsc::{TryRecvError, TrySendError};
 
 use multiqueue;
 
-type Sender = multiqueue::BroadcastSender<(BusId, Message)>;
-type Receiver = multiqueue::BroadcastReceiver<(BusId, Message)>;
+type Sender = multiqueue::BroadcastSender<Payload>;
+type Receiver = multiqueue::BroadcastReceiver<Payload>;
 
 #[derive(Clone)]
 pub struct Bus {
@@ -38,19 +38,11 @@ impl Bus {
         }
     }
 
-    pub fn try_send(&self, msg: Message) -> Result<(), TrySendError<Message>> {
-        use self::TrySendError::*;
-        self.sender.try_send((self.id, msg)).map_err(|e| match e {
-            Disconnected((_, m)) => Disconnected(m),
-            Full((_, m)) => Full(m),
-        })
-    }
-
-    pub fn try_recv(&self) -> Result<(BusId, Message), TryRecvError> {
+    pub fn try_recv(&self) -> Result<Payload, TryRecvError> {
         loop {
-            let (id, m) = self.receiver.try_recv()?;
-            if self.id != id {
-                return Ok((id, m));
+            let payload = self.receiver.try_recv()?;
+            if self.id != payload.sender {
+                return Ok(payload);
             }
         }
     }
@@ -63,7 +55,7 @@ impl PartialEq for Bus {
 }
 
 impl IntoIterator for Bus {
-    type Item = (BusId, Message);
+    type Item = Payload;
     type IntoIter = BusIter;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -76,18 +68,18 @@ impl IntoIterator for Bus {
 
 pub struct BusIter {
     bus_id: BusId,
-    recv: multiqueue::BroadcastReceiver<(BusId, Message)>,
+    recv: multiqueue::BroadcastReceiver<Payload>,
 }
 
 impl Iterator for BusIter {
-    type Item = (BusId, Message);
+    type Item = Payload;
 
     #[inline(always)]
-    fn next(&mut self) -> Option<(BusId, Message)> {
+    fn next(&mut self) -> Option<Payload> {
         loop {
             return match self.recv.recv() {
                 Ok(val) => {
-                    if val.0 == self.bus_id {
+                    if val.sender == self.bus_id {
                         continue;
                     }
                     Some(val)
@@ -108,9 +100,10 @@ pub struct BusSender {
 impl BusSender {
     pub fn try_send(&self, msg: Message) -> Result<(), TrySendError<Message>> {
         use self::TrySendError::*;
-        self.sender.try_send((self.id, msg)).map_err(|e| match e {
-            Disconnected((_, m)) => Disconnected(m),
-            Full((_, m)) => Full(m),
+        let payload = Payload { sender: self.id, message: msg };
+        self.sender.try_send(payload).map_err(|e| match e {
+            Disconnected(Payload { message, .. }) => Disconnected(message),
+            Full(Payload { message, .. }) => Full(message),
         })
     }
 }
@@ -124,6 +117,12 @@ impl BusId {
     fn new() -> BusId {
         BusId(COUNTER.fetch_add(1, Ordering::SeqCst))
     }
+}
+
+#[derive(Clone)]
+pub struct Payload {
+    pub sender: BusId,
+    pub message: Message,
 }
 
 #[derive(Clone)]

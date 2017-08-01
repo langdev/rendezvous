@@ -8,7 +8,7 @@ use discord::model::{ChannelId, Event, Member, PublicChannel, UserId};
 use slog;
 
 use ::{Result};
-use message::{Bus, BusSender, Message};
+use message::{Bus, BusSender, Message, Payload};
 
 
 pub struct Discord {
@@ -94,11 +94,11 @@ fn spawn_actor(
     state: Arc<RwLock<State>>,
 ) {
     thread::spawn(move || {
-        for (_, msg) in bus {
-            if msg.channel.starts_with('#') {
+        for Payload { message, .. } in bus {
+            if message.channel.starts_with('#') {
                 let s = state.read().expect("unexpected poisoned lock");
-                if let Some(channel) = find_channel(&s, &msg.channel[1..]) {
-                    let m = format!("<{}> {}", msg.nickname, msg.content);
+                if let Some(channel) = find_channel(&s, &message.channel[1..]) {
+                    let m = format!("<{}> {}", message.nickname, message.content);
                     while let Err(e) = client.send_message(channel, &m, "", false) {
                         use discord::Error::*;
                         match e {

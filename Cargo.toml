@@ -22,3 +22,13 @@ default-features = false
 
 [dev-dependencies]
 rand = "0.3"
+
+[profile.dev]
+opt-level = 0
+codegen-units = 4
+lto = false
+
+[profile.release]
+opt-level = 3
+lto = true
+debug = true

@@ -8,7 +8,7 @@ use discord::model::{ChannelId, Event, Member, PublicChannel, UserId};
 use slog;
 
 use ::{Result};
-use message::{Bus, BusSender, Message, Payload};
+use message::{Bus, BusSender, Message, MessageCreated, Payload};
 
 
 pub struct Discord {
@@ -66,11 +66,11 @@ fn spawn_listener(
                         if let Some(nick) = find_nickname(&s.members, m.author.id) {
                             nickname = nick.to_owned();
                         }
-                        let mut m = Message {
+                        let mut m = Message::MessageCreated(MessageCreated {
                             nickname,
                             channel: format!("#{}", c.name),
                             content: m.content,
-                        };
+                        });
                         while let Err(e) = sender.try_send(m) {
                             use std::sync::mpsc::TrySendError::*;
                             m = match e {
@@ -93,21 +93,27 @@ fn spawn_actor(
     bus: Bus,
     state: Arc<RwLock<State>>,
 ) {
+    use message::Message::*;
     thread::spawn(move || {
         for Payload { message, .. } in bus {
-            if message.channel.starts_with('#') {
-                let s = state.read().expect("unexpected poisoned lock");
-                if let Some(channel) = find_channel(&s, &message.channel[1..]) {
-                    let m = format!("<{}> {}", message.nickname, message.content);
-                    while let Err(e) = client.send_message(channel, &m, "", false) {
-                        use discord::Error::*;
-                        match e {
-                            Hyper(..) | WebSocket(..) => {
-                                thread::sleep(Duration::from_millis(100));
-                            }
-                            _ => {
-                                error!(logger, "failed to send a message: {}", e);
-                                break;
+            match message {
+                MessageCreated(msg) => {
+                    if !msg.channel.starts_with('#') {
+                        continue;
+                    }
+                    let s = state.read().expect("unexpected poisoned lock");
+                    if let Some(channel) = find_channel(&s, &msg.channel[1..]) {
+                        let m = format!("<{}> {}", msg.nickname, msg.content);
+                        while let Err(e) = client.send_message(channel, &m, "", false) {
+                            use discord::Error::*;
+                            match e {
+                                Hyper(..) | WebSocket(..) => {
+                                    thread::sleep(Duration::from_millis(100));
+                                }
+                                _ => {
+                                    error!(logger, "failed to send a message: {}", e);
+                                    break;
+                                }
                             }
                         }
                     }

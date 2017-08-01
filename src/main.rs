@@ -64,11 +64,15 @@ fn run() -> Result<()> {
     irc_client::Irc::from_config(log.new(o!()), irc_bus, cfg)?;
 
     for payload in bus {
-        let msg = payload.message;
-        if payload.sender == discord_bus_id {
-            info!(log, "from Discord {} {}: {}", msg.channel, msg.nickname, msg.content);
-        } else if payload.sender == irc_bus_id {
-            info!(log, "from IRC {} {}: {}", msg.channel, msg.nickname, msg.content);
+        use message::Message::*;
+        match payload.message {
+            MessageCreated(msg) => {
+                if payload.sender == discord_bus_id {
+                    info!(log, "from Discord {} {}: {}", msg.channel, msg.nickname, msg.content);
+                } else if payload.sender == irc_bus_id {
+                    info!(log, "from IRC {} {}: {}", msg.channel, msg.nickname, msg.content);
+                }
+            }
         }
     }
 

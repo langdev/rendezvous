@@ -4,7 +4,7 @@ use irc::client::prelude::*;
 use slog;
 
 use ::Result;
-use message::{Bus, Message, Payload};
+use message::{Bus, Message, MessageCreated, Payload};
 
 
 pub struct Irc {
@@ -32,11 +32,11 @@ impl Irc {
                 }
                 match message.command {
                     Command::PRIVMSG(target, content) => {
-                        let mut m = Message {
+                        let mut m = Message::MessageCreated(MessageCreated {
                             nickname,
                             channel: target,
                             content,
-                        };
+                        });
                         while let Err(e) = sender.try_send(m) {
                             use std::sync::mpsc::TrySendError::*;
                             m = match e {
@@ -59,11 +59,16 @@ impl Irc {
 }
 
 fn spawn_actor(logger: slog::Logger, client: IrcServer, bus: Bus) {
+    use message::Message::*;
     thread::spawn(move || {
         for Payload { message, .. } in bus {
-            let m = format!("<{}> {}", message.nickname, message.content);
-            if let Err(e) = client.send(Command::PRIVMSG(message.channel, m)) {
-                error!(logger, "failed to send a message: {}", e);
+            match message {
+                MessageCreated(msg) => {
+                    let m = format!("<{}> {}", msg.nickname, msg.content);
+                    if let Err(e) = client.send(Command::PRIVMSG(msg.channel, m)) {
+                        error!(logger, "failed to send a message: {}", e);
+                    }
+                }
             }
         }
     });

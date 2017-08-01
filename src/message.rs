@@ -126,7 +126,12 @@ pub struct Payload {
 }
 
 #[derive(Clone)]
-pub struct Message {
+pub enum Message {
+    MessageCreated(MessageCreated),
+}
+
+#[derive(Clone)]
+pub struct MessageCreated {
     pub nickname: String,
     pub channel: String,
     pub content: String,

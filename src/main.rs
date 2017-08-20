@@ -1,10 +1,12 @@
+#[macro_use] extern crate error_chain;
 #[macro_use] extern crate slog;
 
-extern crate discord;
 extern crate irc;
 extern crate multiqueue;
+extern crate serenity;
 extern crate slog_async;
 extern crate slog_term;
+extern crate typemap;
 
 #[cfg(test)] extern crate rand;
 
@@ -21,9 +23,21 @@ use std::time::Duration;
 use irc::client::data::Config;
 use slog::*;
 
-type Error = Box<::std::error::Error>;
-type Result<T> = ::std::result::Result<T, Error>;
 
+error_chain! {
+    links {
+        Irc(irc::error::Error, irc::error::ErrorKind);
+    }
+    foreign_links {
+        Discord(serenity::Error);
+        EnvironmentVariable(std::env::VarError);
+    }
+    errors {
+        UnexpectedlyPosioned {
+
+        }
+    }
+}
 
 fn main() {
     if let Err(e) = run() {
@@ -48,13 +62,15 @@ fn run() -> Result<()> {
     let discord_bus_id = discord_bus.id;
     let discord = discord_client::Discord::new(log.new(o!()), discord_bus, &discord_bot_token)?;
     thread::sleep(Duration::from_secs(5));
-    let channels = discord.channels();
+    let channels = discord.channels()?;
+
+    debug!(log, "discord channels: {:?}", channels);
 
     let cfg = Config {
         nickname: Some(format!("Rendezvous")),
         server: Some(format!("irc.ozinger.org")),
-        use_ssl: Some(true),
-        port: Some(6697),
+        use_ssl: Some(false),
+        port: Some(6667),
         channels: Some(channels.into_iter().map(|ch| format!("#{}", ch.name)).collect()),
         umodes: Some("+Bx".to_owned()),
         .. Default::default()

@@ -10,17 +10,16 @@ name = "rendezvous"
 path = "src/main.rs"
 
 [dependencies]
+error-chain = "0.10"
 futures = "0.1.14"
 irc = "0.12.3"
 multiqueue = "0.3"
+serenity = "0.3"
 slog = "2"
 slog-async = "2"
 slog-term = "2"
 tokio-core = "0.1.9"
-
-[dependencies.discord]
-version = "0.8"
-default-features = false
+typemap = "0.3"
 
 [dev-dependencies]
 rand = "0.3"

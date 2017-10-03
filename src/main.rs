@@ -56,22 +56,12 @@ fn run() -> Result<()> {
 
     let bus = message::Bus::root();
 
-    let discord_bot_token = env::var("DISCORD_BOT_TOKEN")?;
-
-    let discord_bus = bus.add();
-    let discord_bus_id = discord_bus.id;
-    let discord = discord_client::Discord::new(log.new(o!()), discord_bus, &discord_bot_token)?;
-    thread::sleep(Duration::from_secs(5));
-    let channels = discord.channels()?;
-
-    debug!(log, "discord channels: {:?}", channels);
-
     let cfg = Config {
         nickname: Some(format!("Rendezvous")),
         server: Some(format!("irc.ozinger.org")),
         use_ssl: Some(false),
         port: Some(6667),
-        channels: Some(channels.into_iter().map(|ch| format!("#{}", ch.name)).collect()),
+        channels: Some(vec![]),
         umodes: Some("+Bx".to_owned()),
         .. Default::default()
     };
@@ -79,16 +69,26 @@ fn run() -> Result<()> {
     let irc_bus_id = irc_bus.id;
     irc_client::Irc::from_config(log.new(o!()), irc_bus, cfg)?;
 
+    let discord_bot_token = env::var("DISCORD_BOT_TOKEN")?;
+
+    let discord_bus = bus.add();
+    let discord_bus_id = discord_bus.id;
+    let discord = discord_client::Discord::new(log.new(o!()), discord_bus, &discord_bot_token)?;
+
     for payload in bus {
         use message::Message::*;
         match payload.message {
+            ChannelUpdated { channels } => {
+                info!(log, "discord channels: {:?}", channels);
+            }
             MessageCreated(msg) => {
                 if payload.sender == discord_bus_id {
                     info!(log, "from Discord {} {}: {}", msg.channel, msg.nickname, msg.content);
                 } else if payload.sender == irc_bus_id {
                     info!(log, "from IRC {} {}: {}", msg.channel, msg.nickname, msg.content);
                 }
-            }
+            },
+            _ => { }
         }
     }
 

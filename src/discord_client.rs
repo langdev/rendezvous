@@ -51,14 +51,23 @@ fn spawn_listener(
     log: slog::Logger,
 ) {
     let l2 = log.clone();
-    let sender = Mutex::new(sender);
+    let l3 = log.clone();
+    let sender = Arc::new(Mutex::new(sender));
+    let sender3 = sender.clone();
     client.on_ready(move |ctx, ready| {
         let mut lock = ctx.data.lock().expect("unexpected poisoned lock");
         debug!(l2, "ready: {:?}", ready);
         lock.insert::<User>(ready.user);
         lock.insert::<Guilds>(ready.guilds.into_iter().map(|g| (g.id(), g)).collect());
+        if let Ok(chan) = channels(&lock) {
+            let s = sender3.lock().unwrap();
+            let chan = chan.into_iter().map(|ch| ch.name).collect();
+            s.try_send(Message::ChannelUpdated { channels: chan });
+        }
     });
-    client.on_guild_update(|ctx, guild, partial_guild| {
+    let sender2 = sender.clone();  // it sucks
+    client.on_guild_update(move |ctx, guild, partial_guild| {
+        debug!(l3, "guild_update: {:?}", partial_guild);
         let mut lock = ctx.data.lock().expect("unexpected poisoned lock");
         let g = if let Some(g) = guild {
             GuildStatus::OnlineGuild(g.read().expect("unexpected poisoned lock").clone())
@@ -66,6 +75,11 @@ fn spawn_listener(
             GuildStatus::OnlinePartialGuild(partial_guild)
         };
         lock.get_mut::<Guilds>().map(|m| m.insert(g.id(), g));
+        if let Ok(chan) = channels(&lock) {
+            let s = sender2.lock().unwrap();
+            let chan = chan.into_iter().map(|ch| ch.name).collect();
+            s.try_send(Message::ChannelUpdated { channels: chan });
+        }
     });
     client.on_message(move |ctx, msg| {
         debug!(log, "{:?}", msg);
@@ -136,6 +150,7 @@ fn spawn_actor(
                         }
                     }
                 }
+                _ => { }
             }
         }
     });

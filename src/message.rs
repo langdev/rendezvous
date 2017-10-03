@@ -127,6 +127,7 @@ pub struct Payload {
 
 #[derive(Clone)]
 pub enum Message {
+    ChannelUpdated { channels: Vec<String> },
     MessageCreated(MessageCreated),
 }
 

@@ -22,6 +22,7 @@ impl Irc {
         let c = client.clone();
         let sender = bus.sender();
         thread::spawn(move || {
+            let mut pong_received = false;
             c.for_each_incoming(|message| {
                 debug!(log, "{}", message);
                 let nickname = message.source_nickname()
@@ -43,6 +44,12 @@ impl Irc {
                             thread::yield_now();
                         }
                     }
+                    Command::PONG(_, _) => {
+                        if !pong_received {
+                            pong_received = true;
+                            debug!(log, "woah");
+                        }
+                    }
                     _ => { }
                 }
             }).unwrap();
@@ -59,12 +66,22 @@ fn spawn_actor(logger: slog::Logger, client: IrcServer, bus: Bus) {
     thread::spawn(move || {
         for Payload { message, .. } in bus {
             match message {
+                ChannelUpdated { channels } => {
+                    let chanlist = channels.into_iter()
+                        .map(|n| format!("#{}", n))
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    if let Err(e) = client.send_join(&chanlist) {
+                        error!(logger, "failed to join a channel: {}", e);
+                    }
+                }
                 MessageCreated(msg) => {
                     let m = format!("<{}> {}", msg.nickname, msg.content);
                     if let Err(e) = client.send(Command::PRIVMSG(msg.channel, m)) {
                         error!(logger, "failed to send a message: {}", e);
                     }
                 }
+                _ => { }
             }
         }
     });

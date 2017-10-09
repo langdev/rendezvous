@@ -1,10 +1,12 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
 
+use parking_lot::Mutex;
 use serenity;
 use serenity::model::{Channel, CurrentUser, GuildChannel, GuildId, GuildStatus};
+use serenity::prelude::*;
 use slog;
 use typemap::{Key, ShareMap};
 
@@ -29,10 +31,16 @@ impl Discord {
         where L: Into<Option<slog::Logger>>
     {
         let logger = logger.into().unwrap_or_else(|| slog::Logger::root(slog::Discard, o!()));
-        let client = serenity::Client::new(token);
+        let handler = Handler {
+            sender: Arc::new(Mutex::new(bus.sender())),
+            log: logger.new(o!()),
+        };
+        let mut client = serenity::Client::new(token, handler);
         let data = client.data.clone();
 
-        spawn_listener(client, bus.sender(), logger.new(o!()));
+        thread::spawn(move || {
+            client.start().unwrap();
+        });
         spawn_actor(logger, data.clone(), bus);
         Ok(Discord {
             data,
@@ -40,35 +48,37 @@ impl Discord {
     }
 
     pub fn channels(&self) -> Result<Vec<GuildChannel>> {
-        let lock = self.data.lock().expect("unexpected poisoned lock");
+        let lock = self.data.lock();
         channels(&lock)
     }
 }
 
-fn spawn_listener(
-    mut client: serenity::Client,
-    sender: BusSender,
+struct Handler {
+    sender: Arc<Mutex<BusSender>>,
     log: slog::Logger,
-) {
-    let l2 = log.clone();
-    let l3 = log.clone();
-    let sender = Arc::new(Mutex::new(sender));
-    let sender3 = sender.clone();
-    client.on_ready(move |ctx, ready| {
-        let mut lock = ctx.data.lock().expect("unexpected poisoned lock");
-        debug!(l2, "ready: {:?}", ready);
+}
+
+impl EventHandler for Handler {
+    fn on_ready(&self, ctx: Context, ready: serenity::model::Ready) {
+        let mut lock = ctx.data.lock();
+        debug!(self.log, "ready: {:?}", ready);
         lock.insert::<User>(ready.user);
         lock.insert::<Guilds>(ready.guilds.into_iter().map(|g| (g.id(), g)).collect());
         if let Ok(chan) = channels(&lock) {
-            let s = sender3.lock().unwrap();
+            let s = self.sender.lock();
             let chan = chan.into_iter().map(|ch| ch.name).collect();
             s.try_send(Message::ChannelUpdated { channels: chan });
         }
-    });
-    let sender2 = sender.clone();  // it sucks
-    client.on_guild_update(move |ctx, guild, partial_guild| {
-        debug!(l3, "guild_update: {:?}", partial_guild);
-        let mut lock = ctx.data.lock().expect("unexpected poisoned lock");
+    }
+
+    fn on_guild_update(
+        &self,
+        ctx: Context,
+        guild: Option<Arc<RwLock<serenity::model::Guild>>>,
+        partial_guild: serenity::model::PartialGuild,
+    ) {
+        debug!(self.log, "guild_update: {:?}", partial_guild);
+        let mut lock = ctx.data.lock();
         let g = if let Some(g) = guild {
             GuildStatus::OnlineGuild(g.read().expect("unexpected poisoned lock").clone())
         } else {
@@ -76,26 +86,23 @@ fn spawn_listener(
         };
         lock.get_mut::<Guilds>().map(|m| m.insert(g.id(), g));
         if let Ok(chan) = channels(&lock) {
-            let s = sender2.lock().unwrap();
+            let s = self.sender.lock();
             let chan = chan.into_iter().map(|ch| ch.name).collect();
             s.try_send(Message::ChannelUpdated { channels: chan });
         }
-    });
-    client.on_message(move |ctx, msg| {
-        debug!(log, "{:?}", msg);
-        let s = sender.lock().unwrap();
-        if let Err(e) = on_message(&s, ctx, msg) {
-            error!(log, "Error occured: {}", e);
+    }
+
+    fn on_message(&self, ctx: Context, msg: serenity::model::Message) {
+        debug!(self.log, "{:?}", msg);
+        if let Err(e) = on_message(&self.sender.lock(), ctx, msg) {
+            error!(self.log, "Error occured: {}", e);
         }
-    });
-    thread::spawn(move || {
-        client.start().unwrap();
-    });
+    }
 }
 
 fn on_message(sender: &BusSender, ctx: serenity::client::Context, msg: serenity::model::Message) -> Result<()> {
     if let Some(Channel::Guild(ch)) = msg.channel_id.find() {
-        let data = ctx.data.lock().expect("unexpected poisoned lock");
+        let data = ctx.data.lock();
         let c = ch.read().expect("unexpected poisoned lock");
         if let Some(u) = data.get::<User>() {
             if u.id == msg.author.id {
@@ -133,7 +140,7 @@ fn spawn_actor(
                     if !msg.channel.starts_with('#') {
                         continue;
                     }
-                    let data = data.lock().expect("unexpected poisoned lock");
+                    let data = data.lock();
                     if let Some(channel) = find_channel(&data, &msg.channel[1..]) {
                         let m = format!("<{}> {}", msg.nickname, msg.content);
                         while let Err(e) = channel.send_message(|msg| msg.content(&m)) {

@@ -3,6 +3,7 @@
 
 extern crate irc;
 extern crate multiqueue;
+extern crate parking_lot;
 extern crate serenity;
 extern crate slog_async;
 extern crate slog_term;

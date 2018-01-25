@@ -67,7 +67,8 @@ impl EventHandler for Handler {
         if let Ok(chan) = channels(&lock) {
             let s = self.sender.lock();
             let chan = chan.into_iter().map(|ch| ch.name).collect();
-            s.try_send(Message::ChannelUpdated { channels: chan });
+            s.try_send(Message::ChannelUpdated { channels: chan })
+                .unwrap_or_else(|e| warn!(self.log, "error occured: {}", e));
         }
     }
 
@@ -88,7 +89,8 @@ impl EventHandler for Handler {
         if let Ok(chan) = channels(&lock) {
             let s = self.sender.lock();
             let chan = chan.into_iter().map(|ch| ch.name).collect();
-            s.try_send(Message::ChannelUpdated { channels: chan });
+            s.try_send(Message::ChannelUpdated { channels: chan })
+                .unwrap_or_else(|e| warn!(self.log, "error occured: {}", e));
         }
     }
 

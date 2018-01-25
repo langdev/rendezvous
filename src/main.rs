@@ -18,8 +18,6 @@ mod message;
 use std::default::Default;
 use std::env;
 use std::process;
-use std::thread;
-use std::time::Duration;
 
 use irc::client::data::Config;
 use slog::*;

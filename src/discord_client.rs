@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 use serenity;
-use serenity::model::{Channel, CurrentUser, GuildChannel, GuildId, GuildStatus};
+use serenity::model::{Channel, ChannelType, CurrentUser, GuildChannel, GuildId, GuildStatus};
 use serenity::prelude::*;
 use slog;
 use typemap::{Key, ShareMap};
@@ -181,7 +181,10 @@ fn channels(data: &ShareMap) -> Result<Vec<GuildChannel>> {
                 GuildStatus::OnlineGuild(ref g) => g.channels()?,
                 GuildStatus::OnlinePartialGuild(ref g) => g.channels()?,
             };
-            result.extend(channels.into_iter().map(|(_, v)| v));
+            let channels = channels.into_iter()
+                .map(|(_, v)| v)
+                .filter(|ch| ch.kind == ChannelType::Text);
+            result.extend(channels);
         }
         Ok(result)
     } else {

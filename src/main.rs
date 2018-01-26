@@ -1,12 +1,17 @@
+#![feature(conservative_impl_trait, generators, proc_macro)]
+
 #[macro_use] extern crate error_chain;
 #[macro_use] extern crate slog;
 
+extern crate futures_await as futures;
+extern crate futures_cpupool;
 extern crate irc;
 extern crate multiqueue;
 extern crate parking_lot;
 extern crate serenity;
 extern crate slog_async;
 extern crate slog_term;
+extern crate tokio_core;
 extern crate typemap;
 
 #[cfg(test)] extern crate rand;
@@ -15,10 +20,12 @@ mod discord_client;
 mod irc_client;
 mod message;
 
+use std::collections::HashMap;
 use std::default::Default;
 use std::env;
 use std::process;
 
+use futures::prelude::*;
 use irc::client::data::Config;
 use slog::*;
 
@@ -30,6 +37,7 @@ error_chain! {
     foreign_links {
         Discord(serenity::Error);
         EnvironmentVariable(std::env::VarError);
+        Io(std::io::Error);
     }
     errors {
         UnexpectedlyPosioned {
@@ -53,6 +61,8 @@ fn run() -> Result<()> {
         o!()
     );
 
+    let mut core = tokio_core::reactor::Core::new()?;
+
     let bus = message::Bus::root();
 
     let cfg = Config {
@@ -66,7 +76,7 @@ fn run() -> Result<()> {
     };
     let irc_bus = bus.add();
     let irc_bus_id = irc_bus.id;
-    irc_client::Irc::from_config(log.new(o!()), irc_bus, cfg)?;
+    let irc_future = irc_client::Irc::from_config(core.handle(), log.new(o!()), irc_bus, &cfg)?;
 
     let discord_bot_token = env::var("DISCORD_BOT_TOKEN")?;
 
@@ -74,6 +84,19 @@ fn run() -> Result<()> {
     let discord_bus_id = discord_bus.id;
     let discord = discord_client::Discord::new(log.new(o!()), discord_bus, &discord_bot_token)?;
 
+    std::thread::spawn(move || {
+        let mut id_map = HashMap::new();
+        id_map.insert(irc_bus_id, "IRC".to_owned());
+        id_map.insert(discord_bus_id, "Discord".to_owned());
+        inspect_bus(log, bus, id_map);
+    });
+
+    core.run(irc_future.and_then(|_| futures::future::empty::<(), Error>()))?;
+
+    Ok(())
+}
+
+fn inspect_bus(log: slog::Logger, bus: message::Bus, id_map: HashMap<message::BusId, String>) {
     for payload in bus {
         use message::Message::*;
         match payload.message {
@@ -81,15 +104,11 @@ fn run() -> Result<()> {
                 info!(log, "discord channels: {:?}", channels);
             }
             MessageCreated(msg) => {
-                if payload.sender == discord_bus_id {
-                    info!(log, "from Discord {} {}: {}", msg.channel, msg.nickname, msg.content);
-                } else if payload.sender == irc_bus_id {
-                    info!(log, "from IRC {} {}: {}", msg.channel, msg.nickname, msg.content);
+                if let Some(name) = id_map.get(&payload.sender) {
+                    info!(log, "from {} {} {}: {}", name, msg.channel, msg.nickname, msg.content);
                 }
             },
             _ => { }
         }
     }
-
-    Ok(())
 }

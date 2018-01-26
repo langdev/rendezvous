@@ -91,7 +91,7 @@ impl Iterator for BusIter {
 }
 
 
-
+#[derive(Clone)]
 pub struct BusSender {
     id: BusId,
     sender: Sender,
@@ -108,7 +108,7 @@ impl BusSender {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub struct BusId(usize);
 
 static COUNTER: AtomicUsize = ATOMIC_USIZE_INIT;

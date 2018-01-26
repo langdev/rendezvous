@@ -11,7 +11,8 @@ path = "src/main.rs"
 
 [dependencies]
 error-chain = "0.10"
-futures = "0.1.14"
+futures-await = "0.1"
+futures-cpupool = "0.1.8"
 irc = "0.12.3"
 multiqueue = "0.3"
 parking_lot = "0.4"

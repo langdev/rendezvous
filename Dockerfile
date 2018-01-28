@@ -1,7 +1,5 @@
-FROM spoqa/rust:nightly as base
+FROM spoqa/rust:nightly-minideb as builder
 RUN apt-get update && apt-get install -yq libssl-dev
-
-FROM base as builder
 WORKDIR /work
 RUN apt-get install -yq pkg-config
 COPY Cargo.toml Cargo.lock /work/
@@ -9,7 +7,7 @@ RUN cargo fetch
 COPY src/ /work/src/
 RUN cargo build
 
-FROM base
-RUN apt-get update && apt-get install -yq libssl-dev
+FROM bitnami/minideb
+RUN apt-get update && apt-get install -yq libssl-dev ca-certificates
 COPY --from=builder /work/target/debug/rendezvous /usr/local/bin/
 CMD ["rendezvous"]

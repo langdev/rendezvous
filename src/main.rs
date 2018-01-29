@@ -3,6 +3,7 @@
 #[macro_use] extern crate error_chain;
 #[macro_use] extern crate log;
 
+extern crate env_logger;
 extern crate futures_await as futures;
 extern crate futures_cpupool;
 extern crate irc;
@@ -44,6 +45,8 @@ error_chain! {
 }
 
 fn main() {
+    env_logger::init();
+
     if let Err(e) = run() {
         eprintln!("Fatal error: {}", e);
         process::exit(1);

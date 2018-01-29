@@ -1,7 +1,7 @@
 #![feature(conservative_impl_trait, generators, proc_macro)]
 
 #[macro_use] extern crate error_chain;
-#[macro_use] extern crate slog;
+#[macro_use] extern crate log;
 
 extern crate futures_await as futures;
 extern crate futures_cpupool;
@@ -9,8 +9,6 @@ extern crate irc;
 extern crate multiqueue;
 extern crate parking_lot;
 extern crate serenity;
-extern crate slog_async;
-extern crate slog_term;
 extern crate tokio_core;
 extern crate typemap;
 
@@ -27,7 +25,6 @@ use std::process;
 
 use futures::prelude::*;
 use irc::client::data::Config;
-use slog::*;
 
 
 error_chain! {
@@ -54,13 +51,6 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    let deco = slog_term::TermDecorator::new().build();
-    let drain = slog_term::FullFormat::new(deco).build().fuse();
-    let log = slog::Logger::root(
-        slog_async::Async::new(drain).build().fuse(),
-        o!()
-    );
-
     let mut core = tokio_core::reactor::Core::new()?;
 
     let bus = message::Bus::root();
@@ -76,19 +66,19 @@ fn run() -> Result<()> {
     };
     let irc_bus = bus.add();
     let irc_bus_id = irc_bus.id;
-    let irc_future = irc_client::Irc::from_config(core.handle(), log.new(o!()), irc_bus, &cfg)?;
+    let irc_future = irc_client::Irc::from_config(core.handle(), irc_bus, &cfg)?;
 
     let discord_bot_token = env::var("DISCORD_BOT_TOKEN")?;
 
     let discord_bus = bus.add();
     let discord_bus_id = discord_bus.id;
-    let discord = discord_client::Discord::new(log.new(o!()), discord_bus, &discord_bot_token)?;
+    let discord = discord_client::Discord::new(discord_bus, &discord_bot_token)?;
 
     std::thread::spawn(move || {
         let mut id_map = HashMap::new();
         id_map.insert(irc_bus_id, "IRC".to_owned());
         id_map.insert(discord_bus_id, "Discord".to_owned());
-        inspect_bus(log, bus, id_map);
+        inspect_bus(bus, id_map);
     });
 
     core.run(irc_future.and_then(|_| futures::future::empty::<(), Error>()))?;
@@ -96,16 +86,16 @@ fn run() -> Result<()> {
     Ok(())
 }
 
-fn inspect_bus(log: slog::Logger, bus: message::Bus, id_map: HashMap<message::BusId, String>) {
+fn inspect_bus(bus: message::Bus, id_map: HashMap<message::BusId, String>) {
     for payload in bus {
         use message::Message::*;
         match payload.message {
             ChannelUpdated { channels } => {
-                info!(log, "discord channels: {:?}", channels);
+                info!("discord channels: {:?}", channels);
             }
             MessageCreated(msg) => {
                 if let Some(name) = id_map.get(&payload.sender) {
-                    info!(log, "from {} {} {}: {}", name, msg.channel, msg.nickname, msg.content);
+                    info!("from {} {} {}: {}", name, msg.channel, msg.nickname, msg.content);
                 }
             },
             _ => { }

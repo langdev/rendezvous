@@ -5,7 +5,6 @@ use std::thread;
 use futures::prelude::*;
 use futures_cpupool::CpuPool;
 use irc::client::prelude::*;
-use slog;
 use tokio_core::reactor::Handle;
 
 use ::{Error, Result};
@@ -23,11 +22,9 @@ struct IrcInner {
 }
 
 impl Irc {
-    pub fn from_config<'a, L>(handle: Handle, logger: L, bus: Bus, cfg: &'a Config)
-    -> Result<impl Future<Item=Irc, Error=Error> + 'a>
-        where L: Into<Option<slog::Logger>> + 'a
+    pub fn from_config<'a>(handle: Handle, bus: Bus, cfg: &'a Config)
+        -> Result<impl Future<Item=Irc, Error=Error> + 'a>
     {
-        let logger = logger.into().unwrap_or_else(|| slog::Logger::root(slog::Discard, o!()));
         let client = IrcServer::new_future(handle.clone(), cfg)?;
         Ok(async_block! {
             let client = await!(client)?;
@@ -37,21 +34,21 @@ impl Irc {
                 channels: RwLock::new(BTreeSet::new()),
             });
             let pool = CpuPool::new(8);
-            handle.spawn(listen(logger.new(o!()), pool.clone(), inner.clone(), bus.clone())
+            handle.spawn(listen(pool.clone(), inner.clone(), bus.clone())
                 .map_err(|_| ()));
-            spawn_actor(logger, inner.clone(), bus);
+            spawn_actor(inner.clone(), bus);
             Ok(Irc { inner, pool })
         })
     }
 }
 
 #[async]
-fn listen(logger: slog::Logger, pool: CpuPool, irc: Arc<IrcInner>, bus: Bus) -> Result<()> {
+fn listen(pool: CpuPool, irc: Arc<IrcInner>, bus: Bus) -> Result<()> {
     let sender = bus.sender();
     let mut pong_received = false;
     #[async]
     for message in irc.client.stream() {
-        debug!(logger, "{}", message);
+        debug!("{}", message);
         let nickname = message.source_nickname()
             .map(String::from)
             .unwrap_or_else(String::new);
@@ -60,7 +57,7 @@ fn listen(logger: slog::Logger, pool: CpuPool, irc: Arc<IrcInner>, bus: Bus) -> 
                 match resp {
                     Response::RPL_WELCOME => {
                         if let Err(e) = irc.sync_channel_joining(Vec::new()) {
-                            error!(logger, "failed to join a channel: {}", e);
+                            error!("failed to join a channel: {}", e);
                         }
                     },
                     _ => { }
@@ -88,7 +85,7 @@ fn listen(logger: slog::Logger, pool: CpuPool, irc: Arc<IrcInner>, bus: Bus) -> 
             Command::PONG(_, _) => {
                 if !pong_received {
                     pong_received = true;
-                    debug!(logger, "woah");
+                    debug!("woah");
                 }
             }
             _ => { }
@@ -97,20 +94,20 @@ fn listen(logger: slog::Logger, pool: CpuPool, irc: Arc<IrcInner>, bus: Bus) -> 
     Ok(())
 }
 
-fn spawn_actor(logger: slog::Logger, irc: Arc<IrcInner>, bus: Bus) {
+fn spawn_actor(irc: Arc<IrcInner>, bus: Bus) {
     use message::Message::*;
     thread::spawn(move || {
         for Payload { message, .. } in bus {
             match message {
                 ChannelUpdated { channels } => {
                     if let Err(e) = irc.sync_channel_joining(channels) {
-                        error!(logger, "failed to join a channel: {}", e);
+                        error!("failed to join a channel: {}", e);
                     }
                 }
                 MessageCreated(msg) => {
                     let m = format!("<{}> {}", msg.nickname, msg.content);
                     if let Err(e) = irc.client.send(Command::PRIVMSG(msg.channel, m)) {
-                        error!(logger, "failed to send a message: {}", e);
+                        error!("failed to send a message: {}", e);
                     }
                 }
                 _ => { }

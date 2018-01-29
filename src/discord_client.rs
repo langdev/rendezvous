@@ -7,7 +7,6 @@ use parking_lot::Mutex;
 use serenity;
 use serenity::model::{Channel, ChannelType, CurrentUser, GuildChannel, GuildId, GuildStatus};
 use serenity::prelude::*;
-use slog;
 use typemap::{Key, ShareMap};
 
 use ::{Result};
@@ -27,13 +26,9 @@ struct Guilds;
 impl Key for Guilds { type Value = HashMap<GuildId, GuildStatus>; }
 
 impl Discord {
-    pub fn new<L>(logger: L, bus: Bus, token: &str) -> Result<Discord>
-        where L: Into<Option<slog::Logger>>
-    {
-        let logger = logger.into().unwrap_or_else(|| slog::Logger::root(slog::Discard, o!()));
+    pub fn new(bus: Bus, token: &str) -> Result<Discord> {
         let handler = Handler {
             sender: Arc::new(Mutex::new(bus.sender())),
-            log: logger.new(o!()),
         };
         let mut client = serenity::Client::new(token, handler);
         let data = client.data.clone();
@@ -41,7 +36,7 @@ impl Discord {
         thread::spawn(move || {
             client.start().unwrap();
         });
-        spawn_actor(logger, data.clone(), bus);
+        spawn_actor(data.clone(), bus);
         Ok(Discord {
             data,
         })
@@ -55,20 +50,19 @@ impl Discord {
 
 struct Handler {
     sender: Arc<Mutex<BusSender>>,
-    log: slog::Logger,
 }
 
 impl EventHandler for Handler {
     fn on_ready(&self, ctx: Context, ready: serenity::model::Ready) {
         let mut lock = ctx.data.lock();
-        debug!(self.log, "ready: {:?}", ready);
+        debug!("ready: {:?}", ready);
         lock.insert::<User>(ready.user);
         lock.insert::<Guilds>(ready.guilds.into_iter().map(|g| (g.id(), g)).collect());
         if let Ok(chan) = channels(&lock) {
             let s = self.sender.lock();
             let chan = chan.into_iter().map(|ch| ch.name).collect();
             s.try_send(Message::ChannelUpdated { channels: chan })
-                .unwrap_or_else(|e| warn!(self.log, "error occured: {}", e));
+                .unwrap_or_else(|e| warn!("error occured: {}", e));
         }
     }
 
@@ -78,7 +72,7 @@ impl EventHandler for Handler {
         guild: Option<Arc<RwLock<serenity::model::Guild>>>,
         partial_guild: serenity::model::PartialGuild,
     ) {
-        debug!(self.log, "guild_update: {:?}", partial_guild);
+        debug!("guild_update: {:?}", partial_guild);
         let mut lock = ctx.data.lock();
         let g = if let Some(g) = guild {
             GuildStatus::OnlineGuild(g.read().expect("unexpected poisoned lock").clone())
@@ -90,14 +84,14 @@ impl EventHandler for Handler {
             let s = self.sender.lock();
             let chan = chan.into_iter().map(|ch| ch.name).collect();
             s.try_send(Message::ChannelUpdated { channels: chan })
-                .unwrap_or_else(|e| warn!(self.log, "error occured: {}", e));
+                .unwrap_or_else(|e| warn!("error occured: {}", e));
         }
     }
 
     fn on_message(&self, ctx: Context, msg: serenity::model::Message) {
-        debug!(self.log, "{:?}", msg);
+        debug!("{:?}", msg);
         if let Err(e) = on_message(&self.sender.lock(), ctx, msg) {
-            error!(self.log, "Error occured: {}", e);
+            error!("Error occured: {}", e);
         }
     }
 }
@@ -130,7 +124,6 @@ fn on_message(sender: &BusSender, ctx: serenity::client::Context, msg: serenity:
 }
 
 fn spawn_actor(
-    logger: slog::Logger,
     data: Arc<Mutex<ShareMap>>,
     bus: Bus,
 ) {
@@ -152,7 +145,7 @@ fn spawn_actor(
                                     thread::sleep(Duration::from_millis(100));
                                 }
                                 _ => {
-                                    error!(logger, "failed to send a message: {}", e);
+                                    error!("failed to send a message: {}", e);
                                     break;
                                 }
                             }

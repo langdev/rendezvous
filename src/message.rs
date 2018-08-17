@@ -1,6 +1,8 @@
 use std::sync::atomic::{ATOMIC_USIZE_INIT, AtomicUsize, Ordering};
 use std::sync::mpsc::{TryRecvError, TrySendError};
 
+use actix::{self, prelude::*};
+use log::*;
 use multiqueue;
 
 type Sender = multiqueue::BroadcastSender<Payload>;
@@ -131,6 +133,15 @@ pub enum Message {
     MessageCreated(MessageCreated),
 }
 
+
+pub struct ChannelUpdated {
+    pub channels: Vec<String>,
+}
+
+impl actix::Message for ChannelUpdated {
+    type Result = ();
+}
+
 #[derive(Clone)]
 pub struct MessageCreated {
     pub nickname: String,
@@ -138,6 +149,66 @@ pub struct MessageCreated {
     pub content: String,
 }
 
+impl actix::Message for MessageCreated {
+    type Result = ();
+}
+
+pub struct Subscribe(pub Recipient<MessageCreated>);
+
+impl actix::Message for Subscribe {
+    type Result = ();
+}
+
+pub struct SubscriptionList<M>
+where
+    M: actix::Message + Send,
+    M::Result: Send,
+{
+    subscribers: Vec<Recipient<M>>,
+}
+
+impl<M> SubscriptionList<M>
+where
+    M: actix::Message + Send,
+    M::Result: Send,
+{
+    pub fn new() -> Self {
+        SubscriptionList { subscribers: Vec::new() }
+    }
+
+    pub fn add(&mut self, recipient: Recipient<M>) {
+        self.subscribers.push(recipient);
+    }
+}
+
+impl<M> SubscriptionList<M>
+where
+    M: actix::Message + Send + Clone,
+    M::Result: Send,
+{
+    pub fn send(&mut self, msg: M) {
+        self.subscribers.retain(|s| {
+            match s.do_send(msg.clone()) {
+                Ok(_) => { true }
+                Err(SendError::Full(_)) => {
+                    warn!("mailbox is full");
+                    true
+                }
+                Err(SendError::Closed(_)) => {
+                    false
+                }
+            }
+        });
+    }
+}
+
+impl<M> Default for SubscriptionList<M>
+where
+    M: actix::Message + Send,
+    M::Result: Send,
+{
+    fn default() -> Self { Self::new() }
+}
 
 #[cfg(test)]
 mod test {

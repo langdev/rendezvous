@@ -1,6 +1,9 @@
+cargo-features = ["edition"]
+
 [package]
 name = "rendezvous"
 version = "0.1.0"
+edition = "2018"
 authors = ["Eunchong Yu <kroisse@gmail.com>"]
 license = "AGPL-3.0"
 publish = false
@@ -10,24 +13,25 @@ name = "rendezvous"
 path = "src/main.rs"
 
 [dependencies]
+actix = "0.7"
 env_logger = "0.5"
-error-chain = "0.10"
-futures-await = "0.1"
+failure = "0.1.2"
 futures-cpupool = "0.1.8"
-irc = "0.12.3"
+futures-preview = { version = "0.3.0-alpha.3", features = ["tokio-compat"] }
+irc = "0.13.5"
 log = "0.4"
 multiqueue = "0.3"
-parking_lot = "0.4"
-serenity = "0.4"
-tokio-core = "0.1.9"
+parking_lot = "0.5"
+serenity = "0.5"
+tokio = "0.1"
 typemap = "0.3"
 
 [dev-dependencies]
-rand = "0.3"
+rand = "0.5"
 
 [profile.dev]
 opt-level = 0
-codegen-units = 4
+codegen-units = 20
 lto = false
 
 [profile.release]

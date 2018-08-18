@@ -1,37 +1,29 @@
 #![feature(async_await, await_macro, futures_api)]
 
+mod bus;
+mod config;
 // mod discord_client;
 mod error;
 mod irc_client;
 mod message;
 
-use std::default::Default;
-use std::env;
-
 use actix::prelude::*;
 use failure::Fail;
-use irc::client::data::Config;
 
-pub use crate::error::Error;
+pub use crate::{
+    config::fetch_config,
+    error::Error,
+};
 
 
 fn main() -> Result<(), failure::Error> {
     env_logger::init();
 
-    let discord_bot_token = env::var("DISCORD_BOT_TOKEN")?;
-
-    let cfg = Config {
-        nickname: Some(format!("Rendezvous")),
-        server: Some(format!("irc.ozinger.org")),
-        use_ssl: Some(false),
-        port: Some(6667),
-        channels: Some(vec![]),
-        umodes: Some("+Bx".to_owned()),
-        .. Default::default()
-    };
+    let cfg = config::Config::from_path("dev.toml")?;
+    config::update(cfg);
 
     let code = System::run(move || {
-        let irc = irc_client::Irc::from_config(cfg).unwrap().start();
+        let irc = irc_client::Irc::new().unwrap().start();
 
         let discord = actix::SyncArbiter::start(3, move || {
             discord_client::Discord::new(&discord_bot_token).unwrap()

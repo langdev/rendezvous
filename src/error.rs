@@ -16,8 +16,17 @@ pub enum Error {
     #[fail(display = "IRC error: {}", _0)]
     Irc(#[cause] irc::error::IrcError, Backtrace),
 
+    #[fail(display = "Fail to load the configuration: {}", _0)]
+    Configuration(String, Backtrace),
+
     #[fail(display = "Some thread has poisoned unexpectedly")]
     UnexpectedlyPosioned(Backtrace),
+}
+
+impl Error {
+    pub fn configuration<E: std::fmt::Display>(err: E) -> Self {
+        Error::Configuration(err.to_string(), Backtrace::new())
+    }
 }
 
 impl From<serenity::Error> for Error {

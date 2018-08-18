@@ -10,7 +10,7 @@ use irc::{
 };
 use log::*;
 
-use crate::Error;
+use crate::{fetch_config, Error};
 use crate::message::{ChannelUpdated, MessageCreated, Subscribe, SubscriptionList};
 
 
@@ -21,6 +21,11 @@ pub struct Irc {
 }
 
 impl Irc {
+    pub fn new() -> Result<Irc, Error> {
+        let cfg = fetch_config();
+        Irc::from_config(cfg.irc.clone())
+    }
+
     pub fn from_config(cfg: Config) -> Result<Irc, Error> {
         let client = IrcClient::from_config(cfg)?;
         client.identify()?;

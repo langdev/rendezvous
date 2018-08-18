@@ -2,22 +2,32 @@ use std::collections::BTreeSet;
 use std::sync::RwLock;
 
 use actix::prelude::*;
+use futures::{compat::*, prelude::*};
 use irc::{
-    client::prelude::*,
+    client::{
+        Client,
+        IrcClient,
+        data::Config as IrcConfig,
+        ext::*,
+    },
     error::IrcError,
-    proto::Message as IrcMessage,
-    proto::Response as IrcResponse,
+    proto::{
+        Command,
+        Message as IrcMessage,
+        Response as IrcResponse,
+    },
 };
 use log::*;
 
-use crate::{fetch_config, Error};
-use crate::message::{ChannelUpdated, MessageCreated, Subscribe, SubscriptionList};
+use crate::{Error, fetch_config};
+use crate::bus::{Bus, BusId, Subscribe};
+use crate::message::{ChannelUpdated, MessageCreated};
 
 
 pub struct Irc {
     client: IrcClient,
     channels: RwLock<BTreeSet<String>>,
-    subscribers: SubscriptionList<MessageCreated>,
+    bus_id: Option<BusId>,
 }
 
 impl Irc {
@@ -26,13 +36,13 @@ impl Irc {
         Irc::from_config(cfg.irc.clone())
     }
 
-    pub fn from_config(cfg: Config) -> Result<Irc, Error> {
+    pub fn from_config(cfg: IrcConfig) -> Result<Irc, Error> {
         let client = IrcClient::from_config(cfg)?;
         client.identify()?;
         Ok(Irc {
             client,
             channels: Default::default(),
-            subscribers: Default::default(),
+            bus_id: None,
         })
     }
 
@@ -54,6 +64,48 @@ impl Actor for Irc {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         ctx.add_stream(self.client.stream());
+        let addr = ctx.address();
+        let f = async move {
+            if let Err(err) = await!(subscribe(addr)) {
+                error!("Failed to subscribe: {}", err);
+                addr.do_send(Terminate);
+            }
+        };
+        Arbiter::spawn(f.boxed().unit_error().compat(TokioDefaultSpawn));
+    }
+}
+
+async fn subscribe(addr: Addr<Irc>) -> Result<(), MailboxError> {
+    let bus = Bus::from_registry();
+    let recipient = addr.recipient::<MessageCreated>();
+    let id = await!(bus.send(Subscribe::new(recipient)).compat())?;
+    await!(addr.send(UpdateBusId(id)).compat())?;
+    Ok(())
+}
+
+struct UpdateBusId(BusId);
+
+impl actix::Message for UpdateBusId {
+    type Result = ();
+}
+
+impl Handler<UpdateBusId> for Irc {
+    type Result = ();
+    fn handle(&mut self, msg: UpdateBusId, _: &mut Self::Context) -> Self::Result {
+        self.bus_id = Some(msg.0);
+    }
+}
+
+struct Terminate;
+
+impl actix::Message for Terminate {
+    type Result = ();
+}
+
+impl Handler<Terminate> for Irc {
+    type Result = ();
+    fn handle(&mut self, _: Terminate, ctx: &mut Self::Context) -> Self::Result {
+        ctx.terminate();
     }
 }
 
@@ -74,14 +126,6 @@ impl Handler<MessageCreated> for Irc {
         if let Err(e) = self.client.send(Command::PRIVMSG(msg.channel, m)) {
             error!("failed to send a message: {}", e);
         }
-    }
-}
-
-impl Handler<Subscribe> for Irc {
-    type Result = ();
-
-    fn handle(&mut self, msg: Subscribe, _: &mut Self::Context) -> Self::Result {
-        self.subscribers.add(msg.0);
     }
 }
 
@@ -108,7 +152,7 @@ impl StreamHandler<IrcMessage, IrcError> for Irc {
                     channel: target,
                     content,
                 };
-                self.subscribers.send(m);
+                self.bus_id.map(|id| id.publish(m));
             }
             // Command::PONG(_, _) => {
             //     if !pong_received {

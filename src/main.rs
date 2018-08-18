@@ -11,7 +11,7 @@ use actix::prelude::*;
 use failure::Fail;
 
 pub use crate::{
-    config::fetch_config,
+    config::{Config, fetch_config},
     error::Error,
 };
 
@@ -28,9 +28,6 @@ fn main() -> Result<(), failure::Error> {
         let discord = actix::SyncArbiter::start(3, move || {
             discord_client::Discord::new(&discord_bot_token).unwrap()
         });
-
-        irc.send(message::Subscribe(discord.recipient()));
-        discord.send(message::Subscribe(irc.recipient()));
 
         // std::thread::spawn(move || {
         //     let mut id_map = HashMap::new();

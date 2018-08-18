@@ -12,7 +12,7 @@ pub struct Bus {
 }
 
 impl Bus {
-    pub fn subscribe<A, M>(addr: Addr<A>) -> impl TryFuture<Ok = BusId, Error = MailboxError>
+    pub fn subscribe<A, M>(addr: Addr<A>) -> impl Future<Output = Result<BusId, MailboxError>>
     where
         A: Actor + Handler<M>,
         A::Context: actix::dev::ToEnvelope<A, M>,
@@ -38,16 +38,16 @@ impl Supervised for Bus {}
 impl SystemService for Bus {}
 
 
-static last_id: AtomicUsize = AtomicUsize::new(1);
+static LAST_ID: AtomicUsize = AtomicUsize::new(1);
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct BusId(NonZeroUsize);
 
 impl BusId {
     pub fn new() -> Self {
-        let id = last_id.fetch_add(1, Ordering::SeqCst);
+        let id = LAST_ID.fetch_add(1, Ordering::SeqCst);
         assert_ne!(id, 0);
-        BusId(NonZeroUsize::new_unchecked(id))
+        unsafe { BusId(NonZeroUsize::new_unchecked(id)) }
     }
 
     pub fn publish<M>(&self, message: M)

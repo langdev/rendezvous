@@ -9,8 +9,11 @@ mod message;
 
 use actix::prelude::*;
 use failure::Fail;
+use futures::{compat::*, prelude::*};
+use log::*;
 
 pub use crate::{
+    bus::Bus,
     config::{Config, fetch_config},
     error::Error,
 };
@@ -23,11 +26,26 @@ fn main() -> Result<(), failure::Error> {
     config::update(cfg);
 
     let code = System::run(move || {
-        let irc = irc_client::Irc::new().unwrap().start();
+        let f = async move {
+            let _irc = irc_client::Irc::new()?.start();
+            let inspector = Inspector.start();
+            let _ = await!(Bus::subscribe(inspector));
+            Ok(())
+        };
 
-        let discord = actix::SyncArbiter::start(3, move || {
-            discord_client::Discord::new(&discord_bot_token).unwrap()
+        let f = f.map_err(|err: Error| {
+            error!("{}", err);
+            if let Some(bt) = err.backtrace() {
+                info!("{}", bt);
+            }
+            ()
         });
+
+        Arbiter::spawn(f.boxed().compat(TokioDefaultSpawn));
+
+        // let discord = actix::SyncArbiter::start(3, move || {
+        //     discord_client::Discord::new(&discord_bot_token).unwrap()
+        // });
 
         // std::thread::spawn(move || {
         //     let mut id_map = HashMap::new();
@@ -48,7 +66,8 @@ impl actix::Actor for Inspector {
 impl actix::Handler<message::MessageCreated> for Inspector {
     type Result = ();
 
-    fn handle(&mut self, msg: message::MessageCreated, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: message::MessageCreated, _: &mut Self::Context) -> Self::Result {
+        info!("{:#?}", msg);
     }
 }
 

@@ -48,7 +48,7 @@ impl From<IrcError> for Error {
 }
 
 impl<T> From<std::sync::PoisonError<T>> for Error {
-    fn from(err: std::sync::PoisonError<T>) -> Self {
+    fn from(_err: std::sync::PoisonError<T>) -> Self {
         Error::UnexpectedlyPosioned(Backtrace::new())
     }
 }

@@ -1,26 +1,21 @@
-use actix::{self, prelude::*};
+use actix::prelude::*;
 
+#[derive(Clone, Debug)]
 pub struct ChannelUpdated {
     pub channels: Vec<String>,
 }
 
-impl actix::Message for ChannelUpdated {
+impl Message for ChannelUpdated {
     type Result = ();
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MessageCreated {
     pub nickname: String,
     pub channel: String,
     pub content: String,
 }
 
-impl actix::Message for MessageCreated {
-    type Result = ();
-}
-
-pub struct Subscribe(pub Recipient<MessageCreated>);
-
-impl actix::Message for Subscribe {
+impl Message for MessageCreated {
     type Result = ();
 }

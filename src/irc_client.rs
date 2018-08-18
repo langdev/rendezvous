@@ -66,7 +66,7 @@ impl Actor for Irc {
         ctx.add_stream(self.client.stream());
         let addr = ctx.address();
         let f = async move {
-            if let Err(err) = await!(subscribe(addr)) {
+            if let Err(err) = await!(subscribe(addr.clone())) {
                 error!("Failed to subscribe: {}", err);
                 addr.do_send(Terminate);
             }
@@ -77,7 +77,7 @@ impl Actor for Irc {
 
 async fn subscribe(addr: Addr<Irc>) -> Result<(), MailboxError> {
     let bus = Bus::from_registry();
-    let recipient = addr.recipient::<MessageCreated>();
+    let recipient = addr.clone().recipient::<MessageCreated>();
     let id = await!(bus.send(Subscribe::new(recipient)).compat())?;
     await!(addr.send(UpdateBusId(id)).compat())?;
     Ok(())
@@ -111,7 +111,7 @@ impl Handler<Terminate> for Irc {
 
 impl Handler<ChannelUpdated> for Irc {
     type Result = ();
-    fn handle(&mut self, msg: ChannelUpdated, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ChannelUpdated, _: &mut Self::Context) -> Self::Result {
         if let Err(e) = self.sync_channel_joining(msg.channels) {
             error!("failed to join a channel: {}", e);
         }
@@ -121,7 +121,7 @@ impl Handler<ChannelUpdated> for Irc {
 impl Handler<MessageCreated> for Irc {
     type Result = ();
 
-    fn handle(&mut self, msg: MessageCreated, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: MessageCreated, _: &mut Self::Context) -> Self::Result {
         let m = format!("<{}> {}", msg.nickname, msg.content);
         if let Err(e) = self.client.send(Command::PRIVMSG(msg.channel, m)) {
             error!("failed to send a message: {}", e);

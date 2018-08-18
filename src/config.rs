@@ -41,8 +41,8 @@ lazy_static! {
     static ref CONFIG: RwLock<Arc<Config>> = Default::default();
 }
 
-pub fn update(config: Config) {
-    let lock = CONFIG.write();
+pub fn update(mut config: Config) {
+    let mut lock = CONFIG.write();
     config.revision = lock.revision + 1;
     *lock = Arc::new(config);
 }

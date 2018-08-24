@@ -29,7 +29,7 @@ fn main() -> Result<(), failure::Error> {
         let f = async move {
             let _irc = irc_client::Irc::new()?.start();
             let inspector = Inspector.start();
-            let _ = await!(Bus::subscribe(inspector));
+            let _ = await!(Bus::subscribe(Bus::new_id(), inspector));
             Ok(())
         };
 

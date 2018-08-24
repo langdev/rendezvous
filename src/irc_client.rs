@@ -21,7 +21,7 @@ use log::*;
 use regex::Regex;
 
 use crate::{Config, Error, fetch_config};
-use crate::bus::{Bus, BusId, Subscribe};
+use crate::bus::{Bus, BusId};
 use crate::message::{ChannelUpdated, MessageCreated};
 
 
@@ -30,7 +30,7 @@ pub struct Irc {
 
     client: IrcClient,
     channels: HashSet<String>,
-    bus_id: Option<BusId>,
+    bus_id: BusId,
     last_pong: Instant,
 }
 
@@ -47,7 +47,7 @@ impl Irc {
             config,
             client,
             channels: Default::default(),
-            bus_id: None,
+            bus_id: Bus::new_id(),
             last_pong: Instant::now(),
         })
     }
@@ -113,33 +113,12 @@ impl Actor for Irc {
         ctx.add_stream(self.client.stream());
         let addr = ctx.address();
         let f = async move {
-            if let Err(err) = await!(subscribe(addr.clone())) {
+            if let Err(err) = await!(Bus::subscribe(self.bus_id, addr)) {
                 error!("Failed to subscribe: {}", err);
                 addr.do_send(Terminate);
             }
         };
         Arbiter::spawn(f.boxed().unit_error().compat(TokioDefaultSpawn));
-    }
-}
-
-async fn subscribe(addr: Addr<Irc>) -> Result<(), MailboxError> {
-    let bus = Bus::from_registry();
-    let recipient = addr.clone().recipient::<MessageCreated>();
-    let id = await!(bus.send(Subscribe::new(recipient)).compat())?;
-    await!(addr.send(UpdateBusId(id)).compat())?;
-    Ok(())
-}
-
-struct UpdateBusId(BusId);
-
-impl actix::Message for UpdateBusId {
-    type Result = ();
-}
-
-impl Handler<UpdateBusId> for Irc {
-    type Result = ();
-    fn handle(&mut self, msg: UpdateBusId, _: &mut Self::Context) -> Self::Result {
-        self.bus_id = Some(msg.0);
     }
 }
 

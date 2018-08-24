@@ -12,7 +12,9 @@ pub struct Bus {
 }
 
 impl Bus {
-    pub fn subscribe<A, M>(addr: Addr<A>) -> impl Future<Output = Result<BusId, MailboxError>>
+    pub fn new_id() -> BusId { BusId::new() }
+
+    pub fn subscribe<A, M>(id: BusId, addr: Addr<A>) -> impl Future<Output = Result<(), MailboxError>>
     where
         A: Actor + Handler<M>,
         A::Context: actix::dev::ToEnvelope<A, M>,
@@ -20,7 +22,16 @@ impl Bus {
         M::Result: Send,
     {
         let bus = Bus::from_registry();
-        bus.send(Subscribe::new(addr.recipient())).compat()
+        bus.send(Subscribe::new(id, addr.recipient())).compat()
+    }
+
+    pub fn publish<M>(id: BusId, message: M) -> impl Future<Output = Result<(), MailboxError>>
+    where
+        M: Message + Send + Clone + 'static,
+        M::Result: Send,
+    {
+        let bus = Bus::from_registry();
+        bus.send(Publish { message, sender: Some(id) }).compat()
     }
 }
 
@@ -66,19 +77,10 @@ static LAST_ID: AtomicUsize = AtomicUsize::new(1);
 pub struct BusId(NonZeroUsize);
 
 impl BusId {
-    pub fn new() -> Self {
+    fn new() -> Self {
         let id = LAST_ID.fetch_add(1, Ordering::SeqCst);
         assert_ne!(id, 0);
         unsafe { BusId(NonZeroUsize::new_unchecked(id)) }
-    }
-
-    pub fn publish<M>(&self, message: M)
-    where
-        M: Message + Send + Clone + 'static,
-        M::Result: Send,
-    {
-        let bus = Bus::from_registry();
-        bus.do_send(Publish { message, sender: Some(*self) });
     }
 }
 
@@ -87,6 +89,7 @@ where
     M: Message + Send + 'static,
     M::Result: Send,
 {
+    receiver: BusId,
     pub recipient: Recipient<M>,
 }
 
@@ -95,8 +98,8 @@ where
     M: Message + Send + 'static,
     M::Result: Send,
 {
-    pub fn new(recipient: Recipient<M>) -> Self {
-        Subscribe { recipient }
+    pub fn new(receiver: BusId, recipient: Recipient<M>) -> Self {
+        Subscribe { receiver, recipient }
     }
 }
 
@@ -105,7 +108,7 @@ where
     M: Message + Send + 'static,
     M::Result: Send,
 {
-    type Result = BusId;
+    type Result = ();
 }
 
 impl<M> Handler<Subscribe<M>> for Bus
@@ -118,14 +121,13 @@ where
     fn handle(&mut self, msg: Subscribe<M>, _: &mut Self::Context) -> Self::Result {
         debug!("Bus received Subscribe<M>");
         let list = self.map.entry::<SubscriptionList<M>>().or_insert_with(Default::default);
-        let id = list.add(msg.recipient);
-        MessageResult(id)
+        list.add(msg.receiver, msg.recipient);
     }
 }
 
 pub struct Publish<M> {
-    pub message: M,
     sender: Option<BusId>,
+    pub message: M,
 }
 
 impl<M> Message for Publish<M> {
@@ -142,7 +144,7 @@ where
     fn handle(&mut self, msg: Publish<M>, _: &mut Self::Context) -> Self::Result {
         debug!("Bus received Publish<M>");
         let list = self.map.entry::<SubscriptionList<M>>().or_insert_with(Default::default);
-        list.send(msg.message, msg.sender);
+        list.send(msg.sender, msg.message);
     }
 }
 
@@ -163,10 +165,8 @@ where
         SubscriptionList { subscribers: Vec::new() }
     }
 
-    pub fn add(&mut self, recipient: Recipient<M>) -> BusId {
-        let id = BusId::new();
-        self.subscribers.push((id, recipient));
-        id
+    pub fn add(&mut self, receiver: BusId, recipient: Recipient<M>) {
+        self.subscribers.push((receiver, recipient));
     }
 }
 
@@ -175,7 +175,7 @@ where
     M: actix::Message + Send + Clone,
     M::Result: Send,
 {
-    pub fn send(&mut self, msg: M, sender: Option<BusId>) {
+    pub fn send(&mut self, sender: Option<BusId>, msg: M) {
         self.subscribers.retain(|(id, s)| {
             if sender == Some(*id) {
                 return true;

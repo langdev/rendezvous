@@ -13,7 +13,7 @@ jobs:
         name: Install Utilities
         command: |
           apt-get -y update
-          apt-get -y install cmake libssl-dev pkg-config
+          apt-get -y install cmake libssl-dev pkg-config zlib1g-dev
           RUSTFLAGS="--cfg procmacro2_semver_exempt" cargo install cargo-tarpaulin
     - checkout
     - restore_cache:

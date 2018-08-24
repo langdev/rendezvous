@@ -1,4 +1,5 @@
-#![feature(async_await, await_macro, futures_api)]
+#![feature(async_await, await_macro, futures_api, pin)]
+#![feature(arbitrary_self_types, fn_traits, unboxed_closures)]
 
 mod bus;
 mod config;
@@ -6,6 +7,7 @@ mod config;
 mod error;
 mod irc_client;
 mod message;
+mod util;
 
 use actix::prelude::*;
 use failure::Fail;
@@ -13,9 +15,11 @@ use futures::{compat::*, prelude::*};
 use log::*;
 
 pub use crate::{
-    bus::Bus,
+    bus::{Bus, BusId},
     config::{Config, fetch_config},
     error::Error,
+    message::MessageCreated,
+    util::{AddrExt, GetBusId},
 };
 
 
@@ -28,8 +32,8 @@ fn main() -> Result<(), failure::Error> {
     let code = System::run(move || {
         let f = async move {
             let _irc = irc_client::Irc::new()?.start();
-            let inspector = Inspector.start();
-            let _ = await!(Bus::subscribe(Bus::new_id(), inspector));
+            let inspector = Inspector { bus_id: Bus::new_id() }.start();
+            let _ = await!(inspector.subscribe::<MessageCreated>());
             Ok(())
         };
 
@@ -57,10 +61,19 @@ fn main() -> Result<(), failure::Error> {
     std::process::exit(code);
 }
 
-struct Inspector;
+struct Inspector {
+    bus_id: BusId
+}
 
 impl actix::Actor for Inspector {
     type Context = actix::Context<Self>;
+}
+
+impl Handler<GetBusId> for Inspector {
+    type Result = BusId;
+    fn handle(&mut self, _: GetBusId, _: &mut Self::Context) -> Self::Result {
+        self.bus_id
+    }
 }
 
 impl actix::Handler<message::MessageCreated> for Inspector {

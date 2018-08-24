@@ -23,6 +23,7 @@ use regex::Regex;
 use crate::{Config, Error, fetch_config};
 use crate::bus::{Bus, BusId};
 use crate::message::{ChannelUpdated, MessageCreated};
+use crate::util::{AddrExt, GetBusId};
 
 
 pub struct Irc {
@@ -113,12 +114,19 @@ impl Actor for Irc {
         ctx.add_stream(self.client.stream());
         let addr = ctx.address();
         let f = async move {
-            if let Err(err) = await!(Bus::subscribe(self.bus_id, addr)) {
+            if let Err(err) = await!(addr.subscribe::<MessageCreated>()) {
                 error!("Failed to subscribe: {}", err);
                 addr.do_send(Terminate);
             }
         };
         Arbiter::spawn(f.boxed().unit_error().compat(TokioDefaultSpawn));
+    }
+}
+
+impl Handler<GetBusId> for Irc {
+    type Result = BusId;
+    fn handle(&mut self, _: GetBusId, _: &mut Self::Context) -> Self::Result {
+        self.bus_id
     }
 }
 
@@ -179,7 +187,8 @@ impl StreamHandler<IrcMessage, IrcError> for Irc {
                     .content(content)
                     .origin(origin.map(From::from))
                     .build().unwrap();
-                self.bus_id.map(|id| id.publish(m));
+
+                Bus::do_publish(self.bus_id, m);
             }
             Command::PONG(_, _) => {
                 self.last_pong = Instant::now();

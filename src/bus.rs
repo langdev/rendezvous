@@ -1,10 +1,13 @@
-use std::num::NonZeroUsize;
+use core::marker::Unpin;
+use core::mem::PinMut;
+use core::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use actix::prelude::*;
 use futures::{compat::*, prelude::*};
 use log::*;
 use typemap::{Key, SendMap};
+use pin_utils::unsafe_pinned;
 
 
 pub struct Bus {
@@ -14,24 +17,31 @@ pub struct Bus {
 impl Bus {
     pub fn new_id() -> BusId { BusId::new() }
 
-    pub fn subscribe<A, M>(id: BusId, addr: Addr<A>) -> impl Future<Output = Result<(), MailboxError>>
+    pub fn subscribe<M>(id: BusId, recipient: Recipient<M>) -> WaitSubscribe<M>
     where
-        A: Actor + Handler<M>,
-        A::Context: actix::dev::ToEnvelope<A, M>,
         M: Message + Send + Clone + 'static,
         M::Result: Send,
     {
         let bus = Bus::from_registry();
-        bus.send(Subscribe::new(id, addr.recipient())).compat()
+        WaitSubscribe::new(&bus, id, recipient)
     }
 
-    pub fn publish<M>(id: BusId, message: M) -> impl Future<Output = Result<(), MailboxError>>
+    pub fn publish<M>(id: BusId, message: M) -> WaitPublish<M>
     where
         M: Message + Send + Clone + 'static,
         M::Result: Send,
     {
         let bus = Bus::from_registry();
-        bus.send(Publish { message, sender: Some(id) }).compat()
+        WaitPublish::new(&bus, id, message)
+    }
+
+    pub fn do_publish<M>(id: BusId, message: M)
+    where
+        M: Message + Send + Clone + 'static,
+        M::Result: Send,
+    {
+        let bus = Bus::from_registry();
+        bus.do_send(Publish { sender: Some(id), message, });
     }
 }
 
@@ -116,7 +126,7 @@ where
     M: Message + Send + 'static,
     M::Result: Send,
 {
-    type Result = MessageResult<Subscribe<M>>;
+    type Result = ();
 
     fn handle(&mut self, msg: Subscribe<M>, _: &mut Self::Context) -> Self::Result {
         debug!("Bus received Subscribe<M>");
@@ -208,6 +218,53 @@ where
     M::Result: Send,
 {
     type Value = Self;
+}
+
+
+pub struct WaitSubscribe<M> where M: Message + Send + 'static, M::Result: Send {
+    future: Compat<Request<Bus, Subscribe<M>>, ()>,
+}
+
+impl<M> WaitSubscribe<M> where M: Message + Send + 'static, M::Result: Send {
+    unsafe_pinned!(future: Compat<Request<Bus, Subscribe<M>>, ()>);
+
+    fn new(addr: &Addr<Bus>, id: BusId, recipient: Recipient<M>) -> Self {
+        WaitSubscribe { future: addr.send(Subscribe::new(id, recipient)).compat() }
+    }
+}
+
+impl<M> Unpin for WaitSubscribe<M> where M: Message + Send + 'static, M::Result: Send {}
+
+impl<M> Future for WaitSubscribe<M> where M: Message + Send + 'static, M::Result: Send {
+    type Output = Result<(), MailboxError>;
+
+    fn poll(mut self: PinMut<Self>, cx: &mut std::task::Context) -> Poll<Self::Output> {
+        debug!("WaitSubscribe::poll");
+        self.future().poll(cx)
+    }
+}
+
+pub struct WaitPublish<M> where M: Message + Send + Clone + 'static, M::Result: Send {
+    future: Compat<Request<Bus, Publish<M>>, ()>,
+}
+
+impl<M> WaitPublish<M> where M: Message + Send + Clone + 'static, M::Result: Send {
+    unsafe_pinned!(future: Compat<Request<Bus, Publish<M>>, ()>);
+
+    fn new(addr: &Addr<Bus>, id: BusId, message: M) -> Self {
+        WaitPublish { future: addr.send(Publish { sender: Some(id), message, }).compat() }
+    }
+}
+
+impl<M> Unpin for WaitPublish<M> where M: Message + Send + Clone + 'static, M::Result: Send {}
+
+impl<M> Future for WaitPublish<M> where M: Message + Send + Clone + 'static, M::Result: Send {
+    type Output = Result<(), MailboxError>;
+
+    fn poll(mut self: PinMut<Self>, cx: &mut std::task::Context) -> Poll<Self::Output> {
+        debug!("WaitPublish::poll");
+        self.future().poll(cx)
+    }
 }
 
 

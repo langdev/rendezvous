@@ -46,11 +46,11 @@ jobs:
 workflows:
   version: 2
 
-  test_and_deploy:
+  test:
     jobs:
     - test
 
-    weekly:
+  weekly:
     triggers:
     - schedule:
         cron: "21 0 * * 5"

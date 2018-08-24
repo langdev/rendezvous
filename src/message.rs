@@ -27,3 +27,9 @@ impl MessageCreated {
 impl Message for MessageCreated {
     type Result = ();
 }
+
+pub struct Terminate;
+
+impl Message for Terminate {
+    type Result = ();
+}

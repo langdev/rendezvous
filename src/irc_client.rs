@@ -22,7 +22,7 @@ use regex::Regex;
 
 use crate::{Config, Error, fetch_config};
 use crate::bus::{Bus, BusId};
-use crate::message::{ChannelUpdated, MessageCreated};
+use crate::message::{ChannelUpdated, MessageCreated, Terminate};
 use crate::util::{AddrExt, GetBusId};
 
 
@@ -128,12 +128,6 @@ impl Handler<GetBusId> for Irc {
     fn handle(&mut self, _: GetBusId, _: &mut Self::Context) -> Self::Result {
         self.bus_id
     }
-}
-
-struct Terminate;
-
-impl actix::Message for Terminate {
-    type Result = ();
 }
 
 impl Handler<Terminate> for Irc {

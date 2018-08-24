@@ -1,5 +1,6 @@
-use std::collections::BTreeSet;
-use std::sync::RwLock;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::Instant;
 
 use actix::prelude::*;
 use futures::{compat::*, prelude::*};
@@ -7,7 +8,6 @@ use irc::{
     client::{
         Client,
         IrcClient,
-        data::Config as IrcConfig,
         ext::*,
     },
     error::IrcError,
@@ -18,45 +18,92 @@ use irc::{
     },
 };
 use log::*;
+use regex::Regex;
 
-use crate::{Error, fetch_config};
+use crate::{Config, Error, fetch_config};
 use crate::bus::{Bus, BusId, Subscribe};
 use crate::message::{ChannelUpdated, MessageCreated};
 
 
 pub struct Irc {
+    config: Arc<Config>,
+
     client: IrcClient,
-    channels: RwLock<BTreeSet<String>>,
+    channels: HashSet<String>,
     bus_id: Option<BusId>,
+    last_pong: Instant,
 }
 
 impl Irc {
     pub fn new() -> Result<Irc, Error> {
         let cfg = fetch_config();
-        Irc::from_config(cfg.irc.clone())
+        Irc::from_config(cfg)
     }
 
-    pub fn from_config(cfg: IrcConfig) -> Result<Irc, Error> {
-        let client = IrcClient::from_config(cfg)?;
+    pub fn from_config(config: Arc<Config>) -> Result<Irc, Error> {
+        let client = IrcClient::from_config(config.irc.clone())?;
         client.identify()?;
         Ok(Irc {
+            config,
             client,
             channels: Default::default(),
             bus_id: None,
+            last_pong: Instant::now(),
         })
     }
 
-    fn sync_channel_joining(&self, new_channels: Vec<String>) -> Result<(), Error> {
-        let mut ch = self.channels.write()?;
-        ch.extend(new_channels);
-        if ch.len() <= 0 { return Ok(()); }
-        let chanlist = ch.iter()
+    pub fn bots(&self) -> &HashMap<String, Regex> {
+        &self.config.bots
+    }
+
+    fn handle_response(
+        &mut self,
+        resp: &IrcResponse,
+        _args: &[impl AsRef<str>],
+        _suffix: Option<&str>,
+    ) -> Result<(), Error> {
+        match resp {
+            IrcResponse::RPL_WELCOME => {
+                self.channels.insert("langdev-temp".to_owned());
+                self.sync_channel_joining()?;
+            },
+            _ => { }
+        }
+        Ok(())
+    }
+
+    fn sync_channel_joining(&mut self) -> Result<(), Error> {
+        if self.channels.is_empty() {
+            return Ok(());
+        }
+        let chanlist = self.channels.iter()
             .map(|n| format!("#{}", n))
             .collect::<Vec<_>>()
             .join(",");
         self.client.send_join(&chanlist)?;
         Ok(())
     }
+
+    fn bridged<'m>(&self, nickname: &'m str, content: &'m str) -> Message<'m> {
+        if let Some(pat) = self.bots().get(nickname) {
+            if let Some(m) = pat.captures(content) {
+                if let Some(name) = m.get(1) {
+                    return Message {
+                        nickname: name.as_str(),
+                        content: m.get(2).map(|i| i.as_str()).unwrap_or(content),
+                        origin: Some(nickname),
+                    };
+                }
+            }
+        }
+        Message { nickname, content, origin: None }
+    }
+}
+
+struct Message<'a> {
+    nickname: &'a str,
+    content: &'a str,
+    origin: Option<&'a str>,
 }
 
 impl Actor for Irc {
@@ -112,7 +159,8 @@ impl Handler<Terminate> for Irc {
 impl Handler<ChannelUpdated> for Irc {
     type Result = ();
     fn handle(&mut self, msg: ChannelUpdated, _: &mut Self::Context) -> Self::Result {
-        if let Err(e) = self.sync_channel_joining(msg.channels) {
+        self.channels.extend(msg.channels);
+        if let Err(e) = self.sync_channel_joining() {
             error!("failed to join a channel: {}", e);
         }
     }
@@ -132,34 +180,31 @@ impl Handler<MessageCreated> for Irc {
 impl StreamHandler<IrcMessage, IrcError> for Irc {
     fn handle(&mut self, message: IrcMessage, _: &mut Context<Self>) {
         debug!("{}", message);
-        let nickname = message.source_nickname()
-            .map(String::from)
-            .unwrap_or_else(String::new);
-        match message.command {
-            Command::Response(resp, _, _) => {
-                match resp {
-                    IrcResponse::RPL_WELCOME => {
-                        if let Err(e) = self.sync_channel_joining(Vec::new()) {
-                            error!("failed to join a channel: {}", e);
-                        }
-                    },
-                    _ => { }
+        match &message.command {
+            Command::Response(resp, args, suffix) => {
+                let suffix = suffix.as_ref().map(|s| s.as_ref());
+                if let Err(e) = self.handle_response(resp, args, suffix) {
+                    error!("failed to join a channel: {}", e);
                 }
             }
             Command::PRIVMSG(target, content) => {
-                let m = MessageCreated {
+                let nickname = message.source_nickname().unwrap_or("");
+                let Message {
                     nickname,
-                    channel: target,
                     content,
-                };
+                    origin,
+                } = self.bridged(nickname, content);
+                let m = MessageCreated::builder()
+                    .nickname(nickname)
+                    .channel(&target[..])
+                    .content(content)
+                    .origin(origin.map(From::from))
+                    .build().unwrap();
                 self.bus_id.map(|id| id.publish(m));
             }
-            // Command::PONG(_, _) => {
-            //     if !pong_received {
-            //         pong_received = true;
-            //         debug!("woah");
-            //     }
-            // }
+            Command::PONG(_, _) => {
+                self.last_pong = Instant::now();
+            }
             _ => { }
         }
     }

@@ -1,4 +1,5 @@
 use actix::prelude::*;
+use derive_builder::Builder;
 
 #[derive(Clone, Debug)]
 pub struct ChannelUpdated {
@@ -9,11 +10,18 @@ impl Message for ChannelUpdated {
     type Result = ();
 }
 
-#[derive(Clone, Debug)]
+#[derive(Builder, Clone, Debug)]
+#[builder(setter(into))]
 pub struct MessageCreated {
     pub nickname: String,
     pub channel: String,
     pub content: String,
+    #[builder(default)]
+    pub origin: Option<String>,
+}
+
+impl MessageCreated {
+    pub fn builder() -> MessageCreatedBuilder { Default::default() }
 }
 
 impl Message for MessageCreated {

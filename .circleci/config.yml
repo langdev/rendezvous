@@ -1,0 +1,62 @@
+version: 2
+
+jobs:
+
+  test:
+    docker:
+    - image: rustlang/rust:nightly-slim
+      environment:
+        CARGO_INCREMENTAL: 0
+    working_directory: ~/work
+    steps:
+    - run:
+        name: Install Utilities
+        command: |
+          sudo apt-get -y update
+          sudo apt-get -y install libssl-dev pkg-config
+          RUSTFLAGS="--cfg procmacro2_semver_exempt" cargo install cargo-tarpaulin
+    - checkout
+    - restore_cache:
+        keys:
+        - rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ checksum "Cargo.lock" }}
+        - rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
+        - rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
+    - run: cargo build --tests
+    - run: cargo test --verbose
+    - run:
+        name: Collect Coverage Report
+        command: |
+          cargo tarpaulin --all --verbose --skip-clean \
+            --ignore-tests --forward --ignore-panics \
+            --out Xml --ciserver circle-ci
+    - run:
+        command: ls -lh target/debug/
+        when: always
+    - save_cache:
+        key: rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ checksum "Cargo.lock" }}
+        paths:
+        - "/usr/local/cargo/registry"
+        - "target/debug/deps"
+    - run:
+        name: Upload Coverage Report
+        command: bash <(curl -s https://codecov.io/bash)
+    - store_artifacts:
+        path: cobertura.xml
+
+workflows:
+  version: 2
+
+  test_and_deploy:
+    jobs:
+    - test
+
+    weekly:
+    triggers:
+    - schedule:
+        cron: "21 0 * * 5"
+        filters:
+          branches:
+            only:
+            - master
+    jobs:
+    - test

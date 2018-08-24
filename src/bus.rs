@@ -32,10 +32,32 @@ impl Default for Bus {
 
 impl Actor for Bus {
     type Context = Context<Self>;
+
+    fn started(&mut self, _: &mut Self::Context) {
+        debug!("Bus::started");
+    }
+
+    fn stopping(&mut self, _: &mut Self::Context) -> Running {
+        debug!("Bus::stopping");
+        Running::Stop
+    }
+
+    fn stopped(&mut self, _: &mut Self::Context) {
+        debug!("Bus::stopped");
+    }
 }
 
-impl Supervised for Bus {}
-impl SystemService for Bus {}
+impl Supervised for Bus {
+    fn restarting(&mut self, _: &mut Self::Context) {
+        debug!("Bus::restarting");
+    }
+}
+
+impl SystemService for Bus {
+    fn service_started(&mut self, _: &mut Self::Context) {
+        debug!("Bus::service_started");
+    }
+}
 
 
 static LAST_ID: AtomicUsize = AtomicUsize::new(1);
@@ -94,29 +116,19 @@ where
     type Result = MessageResult<Subscribe<M>>;
 
     fn handle(&mut self, msg: Subscribe<M>, _: &mut Self::Context) -> Self::Result {
+        debug!("Bus received Subscribe<M>");
         let list = self.map.entry::<SubscriptionList<M>>().or_insert_with(Default::default);
-        let id = BusId::new();
-        list.add(msg.recipient);
+        let id = list.add(msg.recipient);
         MessageResult(id)
     }
 }
 
-pub struct Publish<M>
-where
-    M: Message + Send + 'static,
-    M::Result: Send,
-{
+pub struct Publish<M> {
     pub message: M,
     sender: Option<BusId>,
 }
 
-
-
-impl<M> Message for Publish<M>
-where
-    M: Message + Send + 'static,
-    M::Result: Send,
-{
+impl<M> Message for Publish<M> {
     type Result = ();
 }
 
@@ -128,6 +140,7 @@ where
     type Result = ();
 
     fn handle(&mut self, msg: Publish<M>, _: &mut Self::Context) -> Self::Result {
+        debug!("Bus received Publish<M>");
         let list = self.map.entry::<SubscriptionList<M>>().or_insert_with(Default::default);
         list.send(msg.message, msg.sender);
     }

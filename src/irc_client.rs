@@ -20,7 +20,7 @@ use irc::{
 use log::*;
 use regex::Regex;
 
-use crate::{Config, Error, fetch_config};
+use crate::{AddrExt, Config, Error, fetch_config};
 use crate::bus::{Bus, BusId};
 use crate::message::{ChannelUpdated, MessageCreated, Terminate};
 

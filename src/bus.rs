@@ -97,46 +97,24 @@ impl BusId {
 }
 
 struct Bucket<M>(PhantomData<M>);
-impl<M> Key for Bucket<M>
-where
-    M: Message + Send + 'static,
-    M::Result: Send,
-{
+impl<M: Message + Send + 'static> Key for Bucket<M> where M::Result: Send {
     type Value = SubscriptionList<BusId, M>;
 }
 
-pub struct Subscribe<M>
-where
-    M: Message + Send + 'static,
-    M::Result: Send,
-{
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct Subscribe<M: actix::Message + Send + 'static> where M::Result: Send {
     receiver: BusId,
     pub recipient: Recipient<M>,
 }
 
-impl<M> Subscribe<M>
-where
-    M: Message + Send + 'static,
-    M::Result: Send,
-{
+impl<M: Message + Send + 'static> Subscribe<M> where M::Result: Send {
     pub fn new(receiver: BusId, recipient: Recipient<M>) -> Self {
         Subscribe { receiver, recipient }
     }
 }
 
-impl<M> Message for Subscribe<M>
-where
-    M: Message + Send + 'static,
-    M::Result: Send,
-{
-    type Result = ();
-}
-
-impl<M> Handler<Subscribe<M>> for Bus
-where
-    M: Message + Send + 'static,
-    M::Result: Send,
-{
+impl<M: Message + Send + 'static> Handler<Subscribe<M>> for Bus where M::Result: Send {
     type Result = ();
 
     fn handle(&mut self, msg: Subscribe<M>, _: &mut Self::Context) -> Self::Result {
@@ -146,20 +124,14 @@ where
     }
 }
 
+#[derive(Message)]
+#[rtype(result = "()")]
 pub struct Publish<M> {
     sender: Option<BusId>,
     pub message: M,
 }
 
-impl<M> Message for Publish<M> {
-    type Result = ();
-}
-
-impl<M> Handler<Publish<M>> for Bus
-where
-    M: Message + Send + Clone + 'static,
-    M::Result: Send,
-{
+impl<M: Message + Send + Clone + 'static> Handler<Publish<M>> for Bus where M::Result: Send {
     type Result = ();
 
     fn handle(&mut self, msg: Publish<M>, _: &mut Self::Context) -> Self::Result {

@@ -11,12 +11,10 @@ use crate::bus::{self, Bus, BusId};
 pub mod subscription;
 
 
-#[derive(Clone)]
+#[derive(Clone, Message)]
+#[rtype(result = "crate::bus::BusId")]
 pub struct GetBusId;
 
-impl Message for GetBusId {
-    type Result = BusId;
-}
 
 impl<A: Actor, M: Message<Result = BusId>> MessageResponse<A, M> for BusId {
     fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {

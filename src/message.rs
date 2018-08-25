@@ -1,16 +1,14 @@
 use actix::prelude::*;
 use derive_builder::Builder;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Message)]
+#[rtype(result = "()")]
 pub struct ChannelUpdated {
     pub channels: Vec<String>,
 }
 
-impl Message for ChannelUpdated {
-    type Result = ();
-}
-
-#[derive(Builder, Clone, Debug)]
+#[derive(Builder, Clone, Debug, Message)]
+#[rtype(result = "()")]
 #[builder(setter(into))]
 pub struct MessageCreated {
     pub nickname: String,
@@ -24,12 +22,6 @@ impl MessageCreated {
     pub fn builder() -> MessageCreatedBuilder { Default::default() }
 }
 
-impl Message for MessageCreated {
-    type Result = ();
-}
-
+#[derive(Clone, Message)]
+#[rtype(result = "()")]
 pub struct Terminate;
-
-impl Message for Terminate {
-    type Result = ();
-}

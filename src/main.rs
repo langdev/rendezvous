@@ -1,6 +1,9 @@
 #![feature(async_await, await_macro, futures_api, pin)]
 #![feature(arbitrary_self_types, fn_traits, unboxed_closures)]
 
+#![warn(rust_2018_idioms)]
+#![deny(proc_macro_derive_resolution_fallback)]
+
 #[macro_use]
 mod macros;
 

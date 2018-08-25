@@ -8,6 +8,8 @@ use pin_utils::unsafe_pinned;
 
 use crate::bus::{self, Bus, BusId};
 
+pub mod subscription;
+
 
 #[derive(Clone)]
 pub struct GetBusId;

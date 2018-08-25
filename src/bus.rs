@@ -1,4 +1,4 @@
-use core::marker::Unpin;
+use core::marker::{PhantomData, Unpin};
 use core::mem::PinMut;
 use core::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -8,6 +8,8 @@ use futures::{compat::*, prelude::*};
 use log::*;
 use typemap::{Key, SendMap};
 use pin_utils::unsafe_pinned;
+
+use crate::util::subscription::SubscriptionList;
 
 
 pub struct Bus {
@@ -94,6 +96,15 @@ impl BusId {
     }
 }
 
+struct Bucket<M>(PhantomData<M>);
+impl<M> Key for Bucket<M>
+where
+    M: Message + Send + 'static,
+    M::Result: Send,
+{
+    type Value = SubscriptionList<BusId, M>;
+}
+
 pub struct Subscribe<M>
 where
     M: Message + Send + 'static,
@@ -130,7 +141,7 @@ where
 
     fn handle(&mut self, msg: Subscribe<M>, _: &mut Self::Context) -> Self::Result {
         debug!("Bus received Subscribe<M>");
-        let list = self.map.entry::<SubscriptionList<M>>().or_insert_with(Default::default);
+        let list = self.map.entry::<Bucket<M>>().or_insert_with(Default::default);
         list.add(msg.receiver, msg.recipient);
     }
 }
@@ -153,71 +164,9 @@ where
 
     fn handle(&mut self, msg: Publish<M>, _: &mut Self::Context) -> Self::Result {
         debug!("Bus received Publish<M>");
-        let list = self.map.entry::<SubscriptionList<M>>().or_insert_with(Default::default);
+        let list = self.map.entry::<Bucket<M>>().or_insert_with(Default::default);
         list.send(msg.sender, msg.message);
     }
-}
-
-pub struct SubscriptionList<M>
-where
-    M: actix::Message + Send,
-    M::Result: Send,
-{
-    subscribers: Vec<(BusId, Recipient<M>)>,
-}
-
-impl<M> SubscriptionList<M>
-where
-    M: actix::Message + Send,
-    M::Result: Send,
-{
-    pub fn new() -> Self {
-        SubscriptionList { subscribers: Vec::new() }
-    }
-
-    pub fn add(&mut self, receiver: BusId, recipient: Recipient<M>) {
-        self.subscribers.push((receiver, recipient));
-    }
-}
-
-impl<M> SubscriptionList<M>
-where
-    M: actix::Message + Send + Clone,
-    M::Result: Send,
-{
-    pub fn send(&mut self, sender: Option<BusId>, msg: M) {
-        self.subscribers.retain(|(id, s)| {
-            if sender == Some(*id) {
-                return true;
-            }
-            match s.do_send(msg.clone()) {
-                Ok(_) => { true }
-                Err(SendError::Full(_)) => {
-                    warn!("mailbox is full");
-                    true
-                }
-                Err(SendError::Closed(_)) => {
-                    false
-                }
-            }
-        });
-    }
-}
-
-impl<M> Default for SubscriptionList<M>
-where
-    M: actix::Message + Send,
-    M::Result: Send,
-{
-    fn default() -> Self { Self::new() }
-}
-
-impl<M> Key for SubscriptionList<M>
-where
-    M: Message + Send + 'static,
-    M::Result: Send,
-{
-    type Value = Self;
 }
 
 

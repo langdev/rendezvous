@@ -75,12 +75,7 @@ impl actix::Actor for Inspector {
     type Context = actix::Context<Self>;
 }
 
-impl Handler<GetBusId> for Inspector {
-    type Result = BusId;
-    fn handle(&mut self, _: GetBusId, _: &mut Self::Context) -> Self::Result {
-        self.bus_id
-    }
-}
+impl_get_bus_id!(Inspector);
 
 impl actix::Handler<message::MessageCreated> for Inspector {
     type Result = ();

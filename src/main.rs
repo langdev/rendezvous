@@ -1,6 +1,9 @@
 #![feature(async_await, await_macro, futures_api, pin)]
 #![feature(arbitrary_self_types, fn_traits, unboxed_closures)]
 
+#[macro_use]
+mod macros;
+
 mod bus;
 mod config;
 // mod discord_client;

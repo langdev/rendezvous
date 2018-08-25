@@ -23,7 +23,6 @@ use regex::Regex;
 use crate::{Config, Error, fetch_config};
 use crate::bus::{Bus, BusId};
 use crate::message::{ChannelUpdated, MessageCreated, Terminate};
-use crate::util::{AddrExt, GetBusId};
 
 
 pub struct Irc {
@@ -123,12 +122,7 @@ impl Actor for Irc {
     }
 }
 
-impl Handler<GetBusId> for Irc {
-    type Result = BusId;
-    fn handle(&mut self, _: GetBusId, _: &mut Self::Context) -> Self::Result {
-        self.bus_id
-    }
-}
+impl_get_bus_id!(Irc);
 
 impl Handler<Terminate> for Irc {
     type Result = ();

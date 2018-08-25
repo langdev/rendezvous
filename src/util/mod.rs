@@ -128,7 +128,7 @@ where
 {
     type Output = Result<(), MailboxError>;
 
-    fn poll(mut self: PinMut<Self>, cx: &mut std::task::Context) -> Poll<Self::Output> {
+    fn poll(mut self: PinMut<'_, Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         self.inner().poll(cx)
     }
 }
@@ -189,7 +189,7 @@ where
 {
     type Output = Result<(), MailboxError>;
 
-    fn poll(mut self: PinMut<Self>, cx: &mut std::task::Context) -> Poll<Self::Output> {
+    fn poll(mut self: PinMut<'_, Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         self.inner().poll(cx)
     }
 }

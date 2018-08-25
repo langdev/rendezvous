@@ -159,7 +159,7 @@ impl<M> Unpin for WaitSubscribe<M> where M: Message + Send + 'static, M::Result:
 impl<M> Future for WaitSubscribe<M> where M: Message + Send + 'static, M::Result: Send {
     type Output = Result<(), MailboxError>;
 
-    fn poll(mut self: PinMut<Self>, cx: &mut std::task::Context) -> Poll<Self::Output> {
+    fn poll(mut self: PinMut<'_, Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         debug!("WaitSubscribe::poll");
         self.future().poll(cx)
     }
@@ -182,7 +182,7 @@ impl<M> Unpin for WaitPublish<M> where M: Message + Send + Clone + 'static, M::R
 impl<M> Future for WaitPublish<M> where M: Message + Send + Clone + 'static, M::Result: Send {
     type Output = Result<(), MailboxError>;
 
-    fn poll(mut self: PinMut<Self>, cx: &mut std::task::Context) -> Poll<Self::Output> {
+    fn poll(mut self: PinMut<'_, Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         debug!("WaitPublish::poll");
         self.future().poll(cx)
     }

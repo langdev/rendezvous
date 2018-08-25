@@ -13,8 +13,9 @@ macro_rules! impl_get_bus_id {
 #[macro_export]
 macro_rules! sleep_millis {
     ($millis:expr) => ({
-        let d = ::std::time::Duration::from_millis($millis);
-        let f = ::tokio::timer::Delay::new(Instant::now() + d).compat();
+        use futures::compat::*;
+        let d = std::time::Duration::from_millis($millis);
+        let f = tokio::timer::Delay::new(std::time::Instant::now() + d).compat();
         await!(f)
     })
 }
@@ -33,7 +34,7 @@ mod test {
                         $body
                     }
 
-                    assert_eq!(::actix::System::run(||{
+                    assert_eq!(actix::System::run(||{
                         use futures::{compat::*, prelude::*};
                         use tokio::prelude::{
                             Future as Future01,
@@ -41,11 +42,11 @@ mod test {
                         };
 
                         let f = test().unit_error().boxed().compat(TokioDefaultSpawn);
-                        let f = f.deadline(Instant::now() + Duration::from_secs(5));
+                        let f = f.timeout(std::time::Duration::from_secs(5));
 
-                        Arbiter::spawn(f.then(|r| {
+                        actix::Arbiter::spawn(f.then(|r| {
                             r.unwrap();
-                            System::current().stop();
+                            actix::System::current().stop();
                             Ok(())
                         }));
                     }), 0);

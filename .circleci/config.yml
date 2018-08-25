@@ -26,8 +26,8 @@ jobs:
     - run:
         name: Collect Coverage Report
         command: |
-          cargo tarpaulin --all --verbose --skip-clean \
-            --ignore-tests --forward --ignore-panics \
+          cargo tarpaulin --verbose \
+            --ignore-tests --forward \
             --out Xml --ciserver circle-ci
     - run:
         command: ls -lh target/debug/

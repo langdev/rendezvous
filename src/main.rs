@@ -60,16 +60,18 @@ async fn run() -> Result<(), failure::Error> {
     let _irc = irc_client::Irc::new()?.start();
     let _discord = discord_client::Discord::new()?.start();
 
-    let inspector = Inspector { bus_id: Bus::new_id() }.start();
+    let inspector = Inspector { counter: 2, bus_id: Bus::new_id() }.start();
     let _ = await!(inspector.subscribe::<ChannelUpdated>());
     let _ = await!(inspector.subscribe::<MessageCreated>());
+    let _ = await!(inspector.subscribe::<message::Terminate>());
 
     Ok(())
 }
 
 
 struct Inspector {
-    bus_id: BusId
+    counter: i32,
+    bus_id: BusId,
 }
 
 impl actix::Actor for Inspector {
@@ -77,6 +79,18 @@ impl actix::Actor for Inspector {
 }
 
 impl_get_bus_id!(Inspector);
+
+impl actix::Handler<message::Terminate> for Inspector {
+    type Result = ();
+
+    fn handle(&mut self, _: message::Terminate, _: &mut Self::Context) -> Self::Result {
+        self.counter -= 1;
+        debug!("Inspector receives Terminate: counter = {}", self.counter);
+        if self.counter <= 0 {
+            System::current().stop();
+        }
+    }
+}
 
 impl actix::Handler<message::ChannelUpdated> for Inspector {
     type Result = ();

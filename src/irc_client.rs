@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use actix::actors::signal;
 use actix::prelude::*;
 use futures::prelude::*;
 use irc::{
@@ -126,6 +127,9 @@ impl Actor for Irc {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        signal::ProcessSignals::from_registry()
+            .do_send(signal::Subscribe(ctx.address().recipient()));
+
         ctx.add_stream(self.client.stream());
         let addr = ctx.address();
         async fn subscribe(addr: &Addr<Irc>) -> Result<(), MailboxError> {
@@ -146,10 +150,24 @@ impl Actor for Irc {
 
     fn stopped(&mut self, ctx: &mut Self::Context) {
         self.refresh_handle.take().map(|h| ctx.cancel_future(h));
+        let _ = self.client.send_quit("");
+        Bus::do_publish(self.bus_id, Terminate);
     }
 }
 
 impl_get_bus_id!(Irc);
+
+impl Handler<signal::Signal> for Irc {
+    type Result = ();
+
+    fn handle(&mut self, msg: signal::Signal, ctx: &mut Self::Context) {
+        use self::signal::SignalType::*;
+        match msg.0 {
+            Int | Term | Quit => { ctx.stop(); }
+            _ => { }
+        }
+    }
+}
 
 impl Handler<Terminate> for Irc {
     type Result = ();

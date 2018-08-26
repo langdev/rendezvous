@@ -3,9 +3,12 @@ mod worker;
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use actix::{
     self,
+    actors::signal,
+    fut,
     prelude::*,
 };
 use futures::{
@@ -62,12 +65,11 @@ impl Discord {
         })
     }
 
-    fn set_client_state(&mut self, state: Option<ClientState>) {
-        if let Some(old_state) = self.client_state.take() {
-            old_state.shard_manager.lock().shutdown_all();
-            drop(old_state);
+    fn set_client_state(&mut self, state: ClientState) {
+        if let Some(ClientState::Running { shard_manager, .. }) = self.client_state.take() {
+            shard_manager.lock().shutdown_all();
         }
-        self.client_state = state;
+        self.client_state = Some(state);
     }
 
     fn find_channel(&self, channel: &str) -> Option<&GuildChannel> {
@@ -85,11 +87,14 @@ impl Actor for Discord {
     type Context = actix::Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        signal::ProcessSignals::from_registry()
+            .do_send(signal::Subscribe(ctx.address().recipient()));
+
         let (tx, rx) = mpsc::channel(128);
         match new_client(&self.config, tx) {
             Ok(state) => {
                 ctx.add_message_stream(rx.map(|e| Ok(e)).compat(TokioDefaultSpawn));
-                self.set_client_state(Some(state));
+                self.set_client_state(state);
             }
             Err(e) => {
                 error!("Connection failure: {}", e);
@@ -113,8 +118,37 @@ impl Actor for Discord {
         }.boxed());
     }
 
-    fn stopped(&mut self, _ctx: &mut Self::Context) {
-        self.set_client_state(None);
+    fn stopping(&mut self, ctx: &mut Self::Context) -> Running {
+        let old_state = self.client_state.take();
+        let ret = match old_state {
+            Some(ClientState::Running { term_rx, shard_manager, .. }) => {
+                shard_manager.lock().shutdown_all();
+                ctx.run_later(Duration::from_secs(2), |_, ctx| {
+                    ctx.spawn(fut::wrap_future(term_rx.compat(TokioDefaultSpawn))
+                        .then(|res, _, _| {
+                            debug!("Discord client thread terminated: {:?}", res);
+                            fut::ok(())
+                        })
+                        .timeout(Duration::from_secs(5), ())
+                        .then(|_, actor: &mut Self, ctx: &mut Self::Context| {
+                            actor.client_state = Some(ClientState::Stopped);
+                            ctx.stop();
+                            fut::ok(())
+                        })
+                    );
+                });
+                self.client_state = Some(ClientState::Stopping);
+                return Running::Continue;
+            }
+            Some(ClientState::Stopping { .. }) => Running::Continue,
+            _ => Running::Stop,
+        };
+        self.client_state = old_state;
+        ret
+    }
+
+    fn stopped(&mut self, _: &mut Self::Context) {
+        Bus::do_publish(self.bus_id, Terminate);
     }
 }
 
@@ -124,6 +158,18 @@ impl Handler<Terminate> for Discord {
     type Result = ();
     fn handle(&mut self, _: Terminate, ctx: &mut Self::Context) -> Self::Result {
         ctx.terminate();
+    }
+}
+
+impl Handler<signal::Signal> for Discord {
+    type Result = ();
+
+    fn handle(&mut self, msg: signal::Signal, ctx: &mut Self::Context) {
+        use self::signal::SignalType::*;
+        match msg.0 {
+            Int | Term | Quit => { ctx.stop(); }
+            _ => { }
+        }
     }
 }
 

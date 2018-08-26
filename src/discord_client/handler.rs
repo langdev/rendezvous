@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::thread;
 
 use actix::Message;
-use log::*;
 use futures::channel::{mpsc, oneshot};
 use parking_lot::Mutex;
 use serenity::{
@@ -28,22 +27,24 @@ pub(super) fn new_client(
     let mut client = serenity::Client::new(&config.discord.bot_token, handler)?;
     client.data.lock().insert::<Pool>(Mutex::new(client.threadpool.clone()));
     let shard_manager = client.shard_manager.clone();
-    let thread_handle = thread::spawn(move || {
+    thread::spawn(move || {
         let result = client.start();
+        client.threadpool.join();
         let _ = term_tx.send(result);
     });
-    Ok(ClientState {
-        thread_handle,
+    Ok(ClientState::Running {
         term_rx,
         shard_manager,
     })
 }
 
-#[allow(dead_code)]
-pub(super) struct ClientState {
-    pub(super) thread_handle: thread::JoinHandle<()>,
-    pub(super) term_rx: oneshot::Receiver<Result<(), serenity::Error>>,
-    pub(super) shard_manager: Arc<Mutex<ShardManager>>,
+pub(super) enum ClientState {
+    Running {
+        term_rx: oneshot::Receiver<Result<(), serenity::Error>>,
+        shard_manager: Arc<Mutex<ShardManager>>,
+    },
+    Stopping,
+    Stopped,
 }
 
 
@@ -60,10 +61,10 @@ impl DiscordHandler {
         self.tx.clone()
     }
 
-    fn send(&self, event: DiscordEvent) {
+    fn send(&self, context: &Context, event: DiscordEvent) {
         if let Err(e) = self.sender().try_send(event) {
             if e.is_disconnected() {
-
+                context.quit();
             }
         }
     }
@@ -84,10 +85,10 @@ macro_rules! impl_event_handler {
 
         impl EventHandler for DiscordHandler {
             $(
-                fn $handler_name(&self, _: Context, $($arg_name: $arg_type),*) {
+                fn $handler_name(&self, context: Context, $($arg_name: $arg_type),*) {
                     let event = args! { DiscordEvent::$variant_name [] $($arg_name,)* };
                     // debug!(concat!(stringify!($handler_name), ": {:?}"), &event);
-                    self.send(event);
+                    self.send(&context, event);
                 }
             )*
         }

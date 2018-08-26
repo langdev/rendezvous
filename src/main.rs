@@ -87,6 +87,14 @@ impl actix::Actor for Inspector {
 
 impl_get_bus_id!(Inspector);
 
+impl actix::Handler<message::ChannelUpdated> for Inspector {
+    type Result = ();
+
+    fn handle(&mut self, msg: message::ChannelUpdated, _: &mut Self::Context) -> Self::Result {
+        info!("discord channels: {:?}", msg.channels);
+    }
+}
+
 impl actix::Handler<message::MessageCreated> for Inspector {
     type Result = ();
 
@@ -94,20 +102,3 @@ impl actix::Handler<message::MessageCreated> for Inspector {
         info!("{:#?}", msg);
     }
 }
-
-// fn inspect_bus(bus: message::Bus, id_map: HashMap<message::BusId, String>) {
-//     for payload in bus {
-//         use message::Message::*;
-//         match payload.message {
-//             ChannelUpdated { channels } => {
-//                 info!("discord channels: {:?}", channels);
-//             }
-//             MessageCreated(msg) => {
-//                 if let Some(name) = id_map.get(&payload.sender) {
-//                     info!("from {} {} {}: {}", name, msg.channel, msg.nickname, msg.content);
-//                 }
-//             },
-//             _ => { }
-//         }
-//     }
-// }

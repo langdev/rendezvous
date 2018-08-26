@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::thread;
 
+use actix::Message;
 use log::*;
 use futures::channel::{mpsc, oneshot};
 use parking_lot::Mutex;
@@ -18,12 +19,11 @@ use typemap::Key;
 use crate::{Config, Error};
 
 
-pub(super) fn new_client<T>(
-    config: Arc<Config>,
-    f: impl FnOnce(mpsc::Receiver<DiscordEvent>) -> T,
-) -> Result<ClientState<T>, Error> {
+pub(super) fn new_client(
+    config: &Config,
+    tx: mpsc::Sender<DiscordEvent>,
+) -> Result<ClientState, Error> {
     let (term_tx, term_rx) = oneshot::channel();
-    let (tx, rx) = mpsc::channel(128);
     let handler = DiscordHandler { tx };
     let mut client = serenity::Client::new(&config.discord.bot_token, handler)?;
     client.data.lock().insert::<Pool>(Mutex::new(client.threadpool.clone()));
@@ -36,16 +36,14 @@ pub(super) fn new_client<T>(
         thread_handle,
         term_rx,
         shard_manager,
-        extra: f(rx),
     })
 }
 
 #[allow(dead_code)]
-pub(super) struct ClientState<T> {
+pub(super) struct ClientState {
     pub(super) thread_handle: thread::JoinHandle<()>,
     pub(super) term_rx: oneshot::Receiver<Result<(), serenity::Error>>,
     pub(super) shard_manager: Arc<Mutex<ShardManager>>,
-    pub(super) extra: T,
 }
 
 
@@ -88,7 +86,7 @@ macro_rules! impl_event_handler {
             $(
                 fn $handler_name(&self, _: Context, $($arg_name: $arg_type),*) {
                     let event = args! { DiscordEvent::$variant_name [] $($arg_name,)* };
-                    debug!(concat!(stringify!($handler_name), ": {:?}"), &event);
+                    // debug!(concat!(stringify!($handler_name), ": {:?}"), &event);
                     self.send(event);
                 }
             )*
@@ -98,7 +96,8 @@ macro_rules! impl_event_handler {
 
 macro_rules! impl_event {
     ( [ $( $vname:ident { $($arg_name:ident: $arg_type:ty,)* }, )* ] ) => {
-        #[derive(Debug)]
+        #[derive(Debug, Message)]
+        #[rtype(result = "()")]
         pub(super) enum DiscordEvent {
             $( $vname { $($arg_name: $arg_type),* }, )*
         }

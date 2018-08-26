@@ -3,6 +3,10 @@ use derive_builder::Builder;
 
 #[derive(Clone, Debug, Message)]
 #[rtype(result = "()")]
+pub struct IrcReady;
+
+#[derive(Clone, Debug, Message)]
+#[rtype(result = "()")]
 pub struct ChannelUpdated {
     pub channels: Vec<String>,
 }

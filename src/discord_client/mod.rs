@@ -8,7 +8,11 @@ use actix::{
     self,
     prelude::*,
 };
-use futures::{compat::*, prelude::*};
+use futures::{
+    channel::mpsc,
+    compat::*,
+    prelude::*,
+};
 use log::*;
 use serenity::model::{
     channel,
@@ -22,7 +26,7 @@ use crate::{
     Config,
     Error,
     fetch_config,
-    message::{ChannelUpdated, MessageCreated, Terminate},
+    message::{ChannelUpdated, IrcReady, MessageCreated, Terminate},
     task,
 };
 
@@ -37,7 +41,7 @@ pub struct Discord {
     channels: HashMap<String, GuildChannel>,
     members: HashMap<(GuildId, UserId), Member>,
 
-    client_state: Option<ClientState<SpawnHandle>>,
+    client_state: Option<ClientState>,
     current_user: Option<CurrentUser>,
     worker: Addr<DiscordWorker>,
 }
@@ -58,14 +62,9 @@ impl Discord {
         })
     }
 
-    fn set_client_state(
-        &mut self,
-        ctx: &mut <Self as Actor>::Context,
-        state: Option<ClientState<SpawnHandle>>,
-    ) {
+    fn set_client_state(&mut self, state: Option<ClientState>) {
         if let Some(old_state) = self.client_state.take() {
             old_state.shard_manager.lock().shutdown_all();
-            ctx.cancel_future(old_state.extra);
             drop(old_state);
         }
         self.client_state = state;
@@ -86,14 +85,23 @@ impl Actor for Discord {
     type Context = actix::Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        let state = new_client(Arc::clone(&self.config), |rx| {
-            ctx.add_stream(rx.map(|e| Ok(e)).compat(TokioDefaultSpawn))
-        }).unwrap();
-        self.set_client_state(ctx, Some(state));
+        let (tx, rx) = mpsc::channel(128);
+        match new_client(&self.config, tx) {
+            Ok(state) => {
+                ctx.add_message_stream(rx.map(|e| Ok(e)).compat(TokioDefaultSpawn));
+                self.set_client_state(Some(state));
+            }
+            Err(e) => {
+                error!("Connection failure: {}", e);
+                ctx.notify(Terminate);
+                return;
+            }
+        }
 
         let addr = ctx.address();
         async fn subscribe(addr: &Addr<Discord>) -> Result<(), MailboxError> {
             // await!(addr.subscribe::<ChannelUpdated>())?;
+            await!(addr.subscribe::<IrcReady>())?;
             await!(addr.subscribe::<MessageCreated>())?;
             Ok(())
         }
@@ -105,8 +113,8 @@ impl Actor for Discord {
         }.boxed());
     }
 
-    fn stopped(&mut self, ctx: &mut Self::Context) {
-        self.set_client_state(ctx, None);
+    fn stopped(&mut self, _ctx: &mut Self::Context) {
+        self.set_client_state(None);
     }
 }
 
@@ -119,10 +127,13 @@ impl Handler<Terminate> for Discord {
     }
 }
 
-impl StreamHandler<DiscordEvent, ()> for Discord {
-    fn handle(&mut self, item: DiscordEvent, _: &mut Self::Context) {
+impl Handler<DiscordEvent> for Discord {
+    type Result = ();
+
+    fn handle(&mut self, msg: DiscordEvent, _: &mut Self::Context) {
+        debug!("Discord receives DiscordEvent: {:?}", msg);
         use self::DiscordEvent::*;
-        match item {
+        match msg {
             Ready { ready } => self.on_ready(ready),
             GuildCreate { guild, is_new } => self.on_guild_create(guild, is_new),
             GuildMemberAddition { guild_id, member } => self.on_guild_member_addition(guild_id, member),
@@ -130,7 +141,7 @@ impl StreamHandler<DiscordEvent, ()> for Discord {
             GuildMemberUpdate { member } => self.on_guild_member_update(member),
             Message { msg } => self.on_message(msg).unwrap(),
             _ => {
-                debug!("Unknown event: {:#?}", item);
+                info!("Unknown event: {:?}", msg);
             }
         }
     }
@@ -199,6 +210,15 @@ impl Discord {
             Bus::do_publish(self.bus_id, m);
         }
         Ok(())
+    }
+}
+
+impl Handler<IrcReady> for Discord {
+    type Result = ();
+
+    fn handle(&mut self, _: IrcReady, _: &mut Self::Context) {
+        let channels = self.channels.keys().map(Clone::clone).collect();
+        Bus::do_publish(self.bus_id, ChannelUpdated { channels });
     }
 }
 

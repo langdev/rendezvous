@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use actix::prelude::*;
 use futures::prelude::*;
@@ -26,7 +26,7 @@ use crate::{
     Error,
     fetch_config,
     bus::{Bus, BusId},
-    message::{ChannelUpdated, MessageCreated, Terminate},
+    message::{ChannelUpdated, IrcReady, MessageCreated, Terminate},
     util::task,
 };
 
@@ -35,9 +35,11 @@ pub struct Irc {
     config: Arc<Config>,
 
     client: IrcClient,
-    channels: HashSet<String>,
+    connected: bool,
+    channels_to_join: Vec<String>,
     bus_id: BusId,
     last_pong: Instant,
+    refresh_handle: Option<SpawnHandle>,
 }
 
 impl Irc {
@@ -52,9 +54,11 @@ impl Irc {
         Ok(Irc {
             config,
             client,
-            channels: Default::default(),
+            connected: false,
+            channels_to_join: Default::default(),
             bus_id: Bus::new_id(),
             last_pong: Instant::now(),
+            refresh_handle: None,
         })
     }
 
@@ -70,7 +74,9 @@ impl Irc {
     ) -> Result<(), Error> {
         match resp {
             IrcResponse::RPL_WELCOME => {
-                self.channels.insert("langdev-temp".to_owned());
+                info!("Connected");
+                Bus::do_publish(self.bus_id, IrcReady);
+                self.connected = true;
                 self.sync_channel_joining()?;
             },
             _ => { }
@@ -79,10 +85,14 @@ impl Irc {
     }
 
     fn sync_channel_joining(&mut self) -> Result<(), Error> {
-        if self.channels.is_empty() {
+        if self.channels_to_join.is_empty() {
             return Ok(());
         }
-        let chanlist = self.channels.iter()
+        if !self.connected {
+            return Ok(());
+        }
+        debug!("sync_channel_joining: channels = {:?}", self.channels_to_join);
+        let chanlist = self.channels_to_join.drain(..)
             .map(|n| format!("#{}", n))
             .collect::<Vec<_>>()
             .join(",");
@@ -118,7 +128,6 @@ impl Actor for Irc {
     fn started(&mut self, ctx: &mut Self::Context) {
         ctx.add_stream(self.client.stream());
         let addr = ctx.address();
-
         async fn subscribe(addr: &Addr<Irc>) -> Result<(), MailboxError> {
             await!(addr.subscribe::<ChannelUpdated>())?;
             await!(addr.subscribe::<MessageCreated>())?;
@@ -130,6 +139,13 @@ impl Actor for Irc {
                 addr.do_send(Terminate);
             }
         }.boxed());
+        ctx.run_interval(Duration::from_secs(5), |this, _ctx| {
+            let _ = this.sync_channel_joining();
+        });
+    }
+
+    fn stopped(&mut self, ctx: &mut Self::Context) {
+        self.refresh_handle.take().map(|h| ctx.cancel_future(h));
     }
 }
 
@@ -145,7 +161,8 @@ impl Handler<Terminate> for Irc {
 impl Handler<ChannelUpdated> for Irc {
     type Result = ();
     fn handle(&mut self, msg: ChannelUpdated, _: &mut Self::Context) -> Self::Result {
-        self.channels.extend(msg.channels);
+        debug!("Irc receives ChannelUpdated: channels = {:?}", msg.channels);
+        self.channels_to_join.extend(msg.channels);
         if let Err(e) = self.sync_channel_joining() {
             error!("failed to join a channel: {}", e);
         }
@@ -165,7 +182,7 @@ impl Handler<MessageCreated> for Irc {
 
 impl StreamHandler<IrcMessage, IrcError> for Irc {
     fn handle(&mut self, message: IrcMessage, _: &mut Context<Self>) {
-        debug!("{}", message);
+        // debug!("{}", message);
         match &message.command {
             Command::Response(resp, args, suffix) => {
                 let suffix = suffix.as_ref().map(|s| s.as_ref());

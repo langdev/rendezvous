@@ -8,6 +8,8 @@
 #![deny(rust_2018_idioms)]
 #![deny(proc_macro_derive_resolution_fallback)]
 
+#![recursion_limit="128"]
+
 #[macro_use]
 mod macros;
 
@@ -50,17 +52,6 @@ fn main() -> Result<(), failure::Error> {
         });
 
         task::spawn(f.boxed());
-
-        // let discord = actix::SyncArbiter::start(3, move || {
-        //     discord_client::Discord::new(&discord_bot_token).unwrap()
-        // });
-
-        // std::thread::spawn(move || {
-        //     let mut id_map = HashMap::new();
-        //     id_map.insert(irc_bus_id, "IRC".to_owned());
-        //     id_map.insert(discord_bus_id, "Discord".to_owned());
-        //     inspect_bus(bus, id_map);
-        // });
     });
     std::process::exit(code);
 }

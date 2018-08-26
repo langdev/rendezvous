@@ -29,7 +29,7 @@ pub struct Config {
 
 #[derive(Clone, Default, Deserialize)]
 pub struct DiscordConfig {
-    bot_token: String,
+    pub bot_token: String,
 }
 
 impl Config {

@@ -13,7 +13,7 @@ mod macros;
 
 mod bus;
 mod config;
-// mod discord_client;
+mod discord_client;
 mod error;
 mod irc_client;
 mod message;

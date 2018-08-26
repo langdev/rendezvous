@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use actix::prelude::*;
-use futures::{compat::*, prelude::*};
+use futures::prelude::*;
 use irc::{
     client::{
         Client,
@@ -20,9 +20,15 @@ use irc::{
 use log::*;
 use regex::Regex;
 
-use crate::{AddrExt, Config, Error, fetch_config};
-use crate::bus::{Bus, BusId};
-use crate::message::{ChannelUpdated, MessageCreated, Terminate};
+use crate::{
+    AddrExt,
+    Config,
+    Error,
+    fetch_config,
+    bus::{Bus, BusId},
+    message::{ChannelUpdated, MessageCreated, Terminate},
+    util::task,
+};
 
 
 pub struct Irc {
@@ -112,13 +118,12 @@ impl Actor for Irc {
     fn started(&mut self, ctx: &mut Self::Context) {
         ctx.add_stream(self.client.stream());
         let addr = ctx.address();
-        let f = async move {
+        task::spawn(async move {
             if let Err(err) = await!(addr.subscribe::<MessageCreated>()) {
                 error!("Failed to subscribe: {}", err);
                 addr.do_send(Terminate);
             }
-        };
-        Arbiter::spawn(f.boxed().unit_error().compat(TokioDefaultSpawn));
+        }.boxed());
     }
 }
 

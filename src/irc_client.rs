@@ -118,8 +118,14 @@ impl Actor for Irc {
     fn started(&mut self, ctx: &mut Self::Context) {
         ctx.add_stream(self.client.stream());
         let addr = ctx.address();
+
+        async fn subscribe(addr: &Addr<Irc>) -> Result<(), MailboxError> {
+            await!(addr.subscribe::<ChannelUpdated>())?;
+            await!(addr.subscribe::<MessageCreated>())?;
+            Ok(())
+        }
         task::spawn(async move {
-            if let Err(err) = await!(addr.subscribe::<MessageCreated>()) {
+            if let Err(err) = await!(subscribe(&addr)) {
                 error!("Failed to subscribe: {}", err);
                 addr.do_send(Terminate);
             }

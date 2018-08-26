@@ -16,12 +16,14 @@ use serenity::model::{
 };
 
 use crate::{
+    AddrExt,
     Bus,
     BusId,
     Config,
     Error,
     fetch_config,
     message::{ChannelUpdated, MessageCreated, Terminate},
+    task,
 };
 
 use self::handler::{ClientState, DiscordEvent, new_client};
@@ -88,6 +90,19 @@ impl Actor for Discord {
             ctx.add_stream(rx.map(|e| Ok(e)).compat(TokioDefaultSpawn))
         }).unwrap();
         self.set_client_state(ctx, Some(state));
+
+        let addr = ctx.address();
+        async fn subscribe(addr: &Addr<Discord>) -> Result<(), MailboxError> {
+            // await!(addr.subscribe::<ChannelUpdated>())?;
+            await!(addr.subscribe::<MessageCreated>())?;
+            Ok(())
+        }
+        task::spawn(async move {
+            if let Err(err) = await!(subscribe(&addr)) {
+                error!("Failed to subscribe: {}", err);
+                addr.do_send(Terminate);
+            }
+        }.boxed());
     }
 
     fn stopped(&mut self, ctx: &mut Self::Context) {

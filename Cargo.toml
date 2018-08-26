@@ -2,7 +2,7 @@ cargo-features = ["edition"]
 
 [package]
 name = "rendezvous"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2018"
 authors = ["Eunchong Yu <kroisse@gmail.com>"]
 license = "AGPL-3.0"

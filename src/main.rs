@@ -60,10 +60,7 @@ async fn run() -> Result<(), failure::Error> {
     let _irc = irc_client::Irc::new()?.start();
     let _discord = discord_client::Discord::new()?.start();
 
-    let inspector = Inspector { counter: 2, bus_id: Bus::new_id() }.start();
-    let _ = await!(inspector.subscribe::<ChannelUpdated>());
-    let _ = await!(inspector.subscribe::<MessageCreated>());
-    let _ = await!(inspector.subscribe::<message::Terminate>());
+    let _inspector = Inspector { counter: 2, bus_id: Bus::new_id() }.start();
 
     Ok(())
 }
@@ -76,6 +73,16 @@ struct Inspector {
 
 impl actix::Actor for Inspector {
     type Context = actix::Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        let bus_id = self.bus_id;
+        ctx.spawn(
+            Bus::subscribe::<_, ChannelUpdated>(bus_id)
+            .and_then(move |_, _, _| Bus::subscribe::<_, MessageCreated>(bus_id))
+            .and_then(move |_, _, _| Bus::subscribe::<_, message::Terminate>(bus_id))
+            .then(|_, _, _| actix::fut::ok(()))
+        );
+    }
 }
 
 impl_get_bus_id!(Inspector);

@@ -27,14 +27,14 @@ impl<A: Actor, M: Message<Result = BusId>> MessageResponse<A, M> for BusId {
 pub trait AddrExt {
     type Actor: Actor + Handler<GetBusId>;
 
-    fn subscribe<M>(&self) -> WaitSubscribe<<Self as AddrExt>::Actor, M>
-    where
-        <Self as AddrExt>::Actor: Handler<M>,
-        <<Self as AddrExt>::Actor as Actor>::Context: ToEnvelope<<Self as AddrExt>::Actor, GetBusId>,
-        <<Self as AddrExt>::Actor as Actor>::Context: ToEnvelope<<Self as AddrExt>::Actor, M>,
-        M: Message + Send + Clone + 'static,
-        M::Result: Send,
-    ;
+    // fn subscribe<M>(&self) -> WaitSubscribe<<Self as AddrExt>::Actor, M>
+    // where
+    //     <Self as AddrExt>::Actor: Handler<M>,
+    //     <<Self as AddrExt>::Actor as Actor>::Context: ToEnvelope<<Self as AddrExt>::Actor, GetBusId>,
+    //     <<Self as AddrExt>::Actor as Actor>::Context: ToEnvelope<<Self as AddrExt>::Actor, M>,
+    //     M: Message + Send + Clone + 'static,
+    //     M::Result: Send,
+    // ;
 
     fn publish<M>(&self, message: M) -> WaitPublish<<Self as AddrExt>::Actor, M>
     where
@@ -52,16 +52,16 @@ where
 {
     type Actor = A;
 
-    fn subscribe<M>(&self) -> WaitSubscribe<A, M>
-    where
-        A: Handler<M>,
-        A::Context: ToEnvelope<A, GetBusId>,
-        A::Context: ToEnvelope<A, M>,
-        M: Message + Send + Clone + 'static,
-        M::Result: Send,
-    {
-        WaitSubscribe::new(self)
-    }
+    // fn subscribe<M>(&self) -> WaitSubscribe<A, M>
+    // where
+    //     A: Handler<M>,
+    //     A::Context: ToEnvelope<A, GetBusId>,
+    //     A::Context: ToEnvelope<A, M>,
+    //     M: Message + Send + Clone + 'static,
+    //     M::Result: Send,
+    // {
+    //     WaitSubscribe::new(self)
+    // }
 
     fn publish<M>(&self, message: M) -> WaitPublish<A, M>
     where
@@ -74,65 +74,65 @@ where
 }
 
 
-type WaitSubscribeInner<A, M> = future::AndThen<
-    Compat<Request<A, GetBusId>, ()>,
-    bus::WaitSubscribe<M>,
-    ToSubscribe<M>,
->;
+// type WaitSubscribeInner<A, M> = future::AndThen<
+//     Compat<Request<A, GetBusId>, ()>,
+//     bus::WaitSubscribe<M>,
+//     ToSubscribe<M>,
+// >;
 
-#[must_use = "futures do nothing unless polled"]
-pub struct WaitSubscribe<A, M>
-where
-    A: Actor + Handler<GetBusId> + Handler<M>,
-    A::Context: ToEnvelope<A, GetBusId> + ToEnvelope<A, M>,
-    M: Message + Send + Clone + 'static,
-    M::Result: Send,
-{
-    inner: WaitSubscribeInner<A, M>,
-}
+// #[must_use = "futures do nothing unless polled"]
+// pub struct WaitSubscribe<A, M>
+// where
+//     A: Actor + Handler<GetBusId> + Handler<M>,
+//     A::Context: ToEnvelope<A, GetBusId> + ToEnvelope<A, M>,
+//     M: Message + Send + Clone + 'static,
+//     M::Result: Send,
+// {
+//     inner: WaitSubscribeInner<A, M>,
+// }
 
-impl<A, M> WaitSubscribe<A, M>
-where
-    A: Actor + Handler<GetBusId> + Handler<M>,
-    A::Context: ToEnvelope<A, GetBusId> + ToEnvelope<A, M>,
-    M: Message + Send + Clone + 'static,
-    M::Result: Send,
-{
-    unsafe_pinned!(inner: WaitSubscribeInner<A, M>);
+// impl<A, M> WaitSubscribe<A, M>
+// where
+//     A: Actor + Handler<GetBusId> + Handler<M>,
+//     A::Context: ToEnvelope<A, GetBusId> + ToEnvelope<A, M>,
+//     M: Message + Send + Clone + 'static,
+//     M::Result: Send,
+// {
+//     unsafe_pinned!(inner: WaitSubscribeInner<A, M>);
 
-    fn new(addr: &Addr<A>) -> Self {
-        let inner = addr.send(GetBusId).compat()
-            .and_then(ToSubscribe { recipient: addr.clone().recipient::<M>() });
-        WaitSubscribe { inner }
-    }
-}
+//     fn new(addr: &Addr<A>) -> Self {
+//         let inner = addr.send(GetBusId).compat()
+//             .and_then(ToSubscribe { recipient: addr.clone().recipient::<M>() });
+//         WaitSubscribe { inner }
+//     }
+// }
 
-struct ToSubscribe<M> where M: Message + Send + 'static, M::Result: Send {
-    recipient: Recipient<M>,
-}
+// struct ToSubscribe<M> where M: Message + Send + 'static, M::Result: Send {
+//     recipient: Recipient<M>,
+// }
 
-impl<M> FnOnce<(BusId,)> for ToSubscribe<M> where M: Message + Send + Clone + 'static, M::Result: Send
-{
-    type Output = bus::WaitSubscribe<M>;
+// impl<M> FnOnce<(BusId,)> for ToSubscribe<M> where M: Message + Send + Clone + 'static, M::Result: Send
+// {
+//     type Output = bus::WaitSubscribe<M>;
 
-    extern "rust-call" fn call_once(self, args: (BusId,)) -> Self::Output {
-        Bus::subscribe(args.0, self.recipient)
-    }
-}
+//     extern "rust-call" fn call_once(self, args: (BusId,)) -> Self::Output {
+//         Bus::subscribe(args.0, self.recipient)
+//     }
+// }
 
-impl<A, M> Future for WaitSubscribe<A, M>
-where
-    A: Actor + Handler<GetBusId> + Handler<M>,
-    A::Context: ToEnvelope<A, GetBusId> + ToEnvelope<A, M>,
-    M: Message + Send + Clone + 'static,
-    M::Result: Send,
-{
-    type Output = Result<(), MailboxError>;
+// impl<A, M> Future for WaitSubscribe<A, M>
+// where
+//     A: Actor + Handler<GetBusId> + Handler<M>,
+//     A::Context: ToEnvelope<A, GetBusId> + ToEnvelope<A, M>,
+//     M: Message + Send + Clone + 'static,
+//     M::Result: Send,
+// {
+//     type Output = Result<(), MailboxError>;
 
-    fn poll(mut self: PinMut<'_, Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        self.inner().poll(cx)
-    }
-}
+//     fn poll(mut self: PinMut<'_, Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+//         self.inner().poll(cx)
+//     }
+// }
 
 
 type WaitPublishInner<A, M> = future::AndThen<

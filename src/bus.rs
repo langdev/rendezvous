@@ -3,9 +3,17 @@ use core::mem::PinMut;
 use core::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use actix::prelude::*;
+use actix::{
+    dev::ToEnvelope,
+    fut,
+    prelude::*,
+};
 use futures::{compat::*, prelude::*};
 use log::*;
+use tokio::prelude::{
+    Async as Async01,
+    Poll as Poll01,
+};
 use typemap::{Key, SendMap};
 use pin_utils::unsafe_pinned;
 
@@ -19,13 +27,15 @@ pub struct Bus {
 impl Bus {
     pub fn new_id() -> BusId { BusId::new() }
 
-    pub fn subscribe<M>(id: BusId, recipient: Recipient<M>) -> WaitSubscribe<M>
+    pub fn subscribe<A, M>(id: BusId) -> WaitSubscribe<A, M>
     where
+        A: Actor + Handler<M>,
+        A::Context: AsyncContext<A> + ToEnvelope<A, M>,
         M: Message + Send + Clone + 'static,
         M::Result: Send,
     {
         let bus = Bus::from_registry();
-        WaitSubscribe::new(&bus, id, recipient)
+        WaitSubscribe::new(&bus, id)
     }
 
     pub fn publish<M>(id: BusId, message: M) -> WaitPublish<M>
@@ -97,30 +107,31 @@ impl BusId {
 }
 
 struct Bucket<M>(PhantomData<M>);
-impl<M: Message + Send + 'static> Key for Bucket<M> where M::Result: Send {
+impl<M: Send + 'static> Key for Bucket<M> {
     type Value = SubscriptionList<BusId, M>;
 }
 
 #[derive(Message)]
-#[rtype(result = "()")]
-pub struct Subscribe<M: actix::Message + Send + 'static> where M::Result: Send {
+#[rtype(result = "crate::util::subscription::Receiver<M>")]
+pub struct Subscribe<M: 'static> {
     receiver: BusId,
-    pub recipient: Recipient<M>,
+    _msg: PhantomData<M>,
 }
 
-impl<M: Message + Send + 'static> Subscribe<M> where M::Result: Send {
-    pub fn new(receiver: BusId, recipient: Recipient<M>) -> Self {
-        Subscribe { receiver, recipient }
+impl<M> Subscribe<M> {
+    pub fn new(receiver: BusId) -> Self {
+        Subscribe { receiver, _msg: PhantomData }
     }
 }
 
-impl<M: Message + Send + 'static> Handler<Subscribe<M>> for Bus where M::Result: Send {
-    type Result = ();
+impl<M: Send + Sized> Handler<Subscribe<M>> for Bus {
+    type Result = MessageResult<Subscribe<M>>;
 
     fn handle(&mut self, msg: Subscribe<M>, _: &mut Self::Context) -> Self::Result {
         debug!("Bus received Subscribe<M>");
         let list = self.map.entry::<Bucket<M>>().or_insert_with(Default::default);
-        list.add(msg.receiver, msg.recipient);
+        let rx = list.subscribe(msg.receiver);
+        MessageResult(rx)
     }
 }
 
@@ -137,31 +148,59 @@ impl<M: Message + Send + Clone + 'static> Handler<Publish<M>> for Bus where M::R
     fn handle(&mut self, msg: Publish<M>, _: &mut Self::Context) -> Self::Result {
         debug!("Bus received Publish<M>");
         let list = self.map.entry::<Bucket<M>>().or_insert_with(Default::default);
-        list.send(msg.sender, msg.message);
+        list.do_send(msg.sender, msg.message);
     }
 }
 
 
-pub struct WaitSubscribe<M> where M: Message + Send + 'static, M::Result: Send {
-    future: Compat<Request<Bus, Subscribe<M>>, ()>,
+pub struct WaitSubscribe<A, M>
+where
+    A: Actor,
+    M: Send + 'static,
+{
+    future: fut::FutureWrap<Request<Bus, Subscribe<M>>, A>,
 }
 
-impl<M> WaitSubscribe<M> where M: Message + Send + 'static, M::Result: Send {
-    unsafe_pinned!(future: Compat<Request<Bus, Subscribe<M>>, ()>);
-
-    fn new(addr: &Addr<Bus>, id: BusId, recipient: Recipient<M>) -> Self {
-        WaitSubscribe { future: addr.send(Subscribe::new(id, recipient)).compat() }
+impl<A, M> WaitSubscribe<A, M>
+where
+    A: Actor + Handler<M>,
+    A::Context: AsyncContext<A> + ToEnvelope<A, M>,
+    M: Message + Send + 'static,
+    M::Result: Send,
+{
+    fn new(addr: &Addr<Bus>, id: BusId) -> Self {
+        WaitSubscribe {
+            future: fut::wrap_future(addr.send(Subscribe::<M>::new(id)))
+        }
     }
 }
 
-impl<M> Unpin for WaitSubscribe<M> where M: Message + Send + 'static, M::Result: Send {}
+impl<A, M> Unpin for WaitSubscribe<A, M>
+where
+    A: Actor + Unpin,
+    M: Message + Send + 'static,
+    M::Result: Send,
+{}
 
-impl<M> Future for WaitSubscribe<M> where M: Message + Send + 'static, M::Result: Send {
-    type Output = Result<(), MailboxError>;
+impl<A, M> ActorFuture for WaitSubscribe<A, M>
+where
+    A: Actor + Handler<M>,
+    A::Context: AsyncContext<A> + ToEnvelope<A, M>,
+    M: Message + Send + Unpin + 'static,
+    M::Result: Send + Unpin,
+{
+    type Item = ();
+    type Error = MailboxError;
+    type Actor = A;
 
-    fn poll(mut self: PinMut<'_, Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+    fn poll(&mut self, srv: &mut Self::Actor, ctx: &mut <Self::Actor as Actor>::Context) -> Poll01<Self::Item, Self::Error> {
         debug!("WaitSubscribe::poll");
-        self.future().poll(cx)
+        let rx = match self.future.poll(srv, ctx)? {
+            Async01::Ready(t) => t,
+            Async01::NotReady => { return Ok(Async01::NotReady); }
+        };
+        ctx.add_message_stream(rx.map(Result::Ok).compat(TokioDefaultSpawn));
+        Ok(Async01::Ready(()))
     }
 }
 

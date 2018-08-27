@@ -2,9 +2,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use actix::actors::signal;
-use actix::prelude::*;
-use futures::prelude::*;
+use actix::{
+    actors::signal,
+    fut,
+    prelude::*,
+};
 use irc::{
     client::{
         Client,
@@ -22,13 +24,11 @@ use log::*;
 use regex::Regex;
 
 use crate::{
-    AddrExt,
     Config,
     Error,
     fetch_config,
     bus::{Bus, BusId},
     message::{ChannelUpdated, IrcReady, MessageCreated, Terminate},
-    util::task,
 };
 
 
@@ -131,18 +131,18 @@ impl Actor for Irc {
             .do_send(signal::Subscribe(ctx.address().recipient()));
 
         ctx.add_stream(self.client.stream());
-        let addr = ctx.address();
-        async fn subscribe(addr: &Addr<Irc>) -> Result<(), MailboxError> {
-            await!(addr.subscribe::<ChannelUpdated>())?;
-            await!(addr.subscribe::<MessageCreated>())?;
-            Ok(())
-        }
-        task::spawn(async move {
-            if let Err(err) = await!(subscribe(&addr)) {
-                error!("Failed to subscribe: {}", err);
-                addr.do_send(Terminate);
-            }
-        }.boxed());
+        let bus_id = self.bus_id;
+        ctx.spawn(
+            Bus::subscribe::<_, ChannelUpdated>(bus_id)
+            .and_then(move |_, _, _| Bus::subscribe::<_, MessageCreated>(bus_id))
+            .then(|res, _, ctx: &mut Self::Context| {
+                if let Err(err) = res {
+                    error!("Failed to subscribe: {}", err);
+                    ctx.notify(Terminate);
+                }
+                fut::ok(())
+            })
+        );
         ctx.run_interval(Duration::from_secs(5), |this, _ctx| {
             let _ = this.sync_channel_joining();
         });

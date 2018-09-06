@@ -243,7 +243,6 @@ impl Discord {
                     return Ok(());
                 }
             }
-            // let nickname = channel.guild_id.member(msg.author.id)?.nick.unwrap_or(msg.author.name);
             let nickname = self.members.get(&(channel.guild_id, msg.author.id))
                 .and_then(|m| m.nick.as_ref())
                 .unwrap_or(&msg.author.name);

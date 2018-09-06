@@ -5,5 +5,5 @@ use futures::{compat::*, prelude::*};
 
 
 pub fn spawn<F>(fut: F) where F: Future<Output = ()> + Unpin + 'static {
-    Arbiter::spawn(fut.unit_error().compat(TokioDefaultSpawn));
+    Arbiter::spawn(fut.unit_error().compat(TokioDefaultSpawner));
 }

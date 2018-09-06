@@ -1,5 +1,5 @@
-use core::mem::PinMut;
 use core::ops::FnOnce;
+use core::pin::PinMut;
 
 use actix::prelude::*;
 use actix::dev::{MessageResponse, ResponseChannel, ToEnvelope};

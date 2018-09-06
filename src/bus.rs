@@ -1,6 +1,6 @@
 use core::marker::{PhantomData, Unpin};
-use core::mem::PinMut;
 use core::num::NonZeroUsize;
+use core::pin::PinMut;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use actix::prelude::*;

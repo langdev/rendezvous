@@ -9,14 +9,10 @@ use actix::{
     self,
     actors::signal,
     fut,
-    prelude::*,
 };
 use futures::{
     channel::mpsc,
-    compat::*,
-    prelude::*,
 };
-use log::*;
 use serenity::model::{
     channel,
     prelude::*,
@@ -30,7 +26,7 @@ use crate::{
     Error,
     fetch_config,
     message::{ChannelUpdated, IrcReady, MessageCreated, Terminate},
-    task,
+    prelude::*,
 };
 
 use self::handler::{ClientState, DiscordEvent, new_client};
@@ -93,7 +89,7 @@ impl Actor for Discord {
         let (tx, rx) = mpsc::channel(128);
         match new_client(&self.config, tx) {
             Ok(state) => {
-                ctx.add_message_stream(rx.map(|e| Ok(e)).compat(TokioDefaultSpawner));
+                ctx.add_message_stream_03(rx);
                 self.set_client_state(state);
             }
             Err(e) => {
@@ -110,7 +106,7 @@ impl Actor for Discord {
             await!(addr.subscribe::<MessageCreated>())?;
             Ok(())
         }
-        task::spawn(async move {
+        Arbiter::spawn_async(async move {
             if let Err(err) = await!(subscribe(&addr)) {
                 error!("Failed to subscribe: {}", err);
                 addr.do_send(Terminate);
@@ -124,7 +120,7 @@ impl Actor for Discord {
             Some(ClientState::Running { term_rx, shard_manager, .. }) => {
                 shard_manager.lock().shutdown_all();
                 ctx.run_later(Duration::from_secs(2), |_, ctx| {
-                    ctx.spawn(fut::wrap_future(term_rx.compat(TokioDefaultSpawner))
+                    ctx.spawn(fut::wrap_future(term_rx.tokio_compat())
                         .then(|res, _, _| {
                             debug!("Discord client thread terminated: {:?}", res);
                             fut::ok(())

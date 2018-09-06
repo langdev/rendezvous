@@ -3,8 +3,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use actix::actors::signal;
-use actix::prelude::*;
-use futures::prelude::*;
 use irc::{
     client::{
         Client,
@@ -18,7 +16,6 @@ use irc::{
         Response as IrcResponse,
     },
 };
-use log::*;
 use regex::Regex;
 
 use crate::{
@@ -28,7 +25,7 @@ use crate::{
     fetch_config,
     bus::{Bus, BusId},
     message::{ChannelUpdated, IrcReady, MessageCreated, Terminate},
-    util::task,
+    prelude::*,
 };
 
 
@@ -137,7 +134,7 @@ impl Actor for Irc {
             await!(addr.subscribe::<MessageCreated>())?;
             Ok(())
         }
-        task::spawn(async move {
+        Arbiter::spawn_async(async move {
             if let Err(err) = await!(subscribe(&addr)) {
                 error!("Failed to subscribe: {}", err);
                 addr.do_send(Terminate);

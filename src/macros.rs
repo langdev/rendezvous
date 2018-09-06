@@ -35,13 +35,13 @@ mod test {
                     }
 
                     assert_eq!(actix::System::run(||{
-                        use futures::{compat::*, prelude::*};
+                        use $crate::prelude::*;
                         use tokio::prelude::{
                             Future as Future01,
                             FutureExt as Future01Ext,
                         };
 
-                        let f = test().unit_error().boxed().compat(TokioDefaultSpawner);
+                        let f = test().unit_error().boxed().tokio_compat();
                         let f = f.timeout(std::time::Duration::from_secs(5));
 
                         actix::Arbiter::spawn(f.then(|r| {

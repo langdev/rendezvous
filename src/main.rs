@@ -19,12 +19,10 @@ mod discord_client;
 mod error;
 mod irc_client;
 mod message;
+mod prelude;
 mod util;
 
-use actix::prelude::*;
 use failure::Fail;
-use futures::prelude::*;
-use log::*;
 
 pub use crate::{
     bus::{Bus, BusId},
@@ -35,7 +33,7 @@ pub use crate::{
 
 use crate::{
     message::{ChannelUpdated, MessageCreated},
-    util::task,
+    prelude::*,
 };
 
 
@@ -51,7 +49,7 @@ fn main() -> Result<(), failure::Error> {
             future::ready(())
         });
 
-        task::spawn(f.boxed());
+        Arbiter::spawn_async(f.boxed());
     });
     std::process::exit(code);
 }

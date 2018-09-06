@@ -12,6 +12,7 @@ RUN cargo build --release && upx -9 /work/target/release/rendezvous
 
 FROM debian:stretch-slim
 RUN apt-get update && apt-get install -yq ca-certificates libssl1.1
+COPY cert/ /opt/cert/
 COPY --from=builder /work/target/release/rendezvous /usr/local/bin/
 
 LABEL org.label-schema.schema-version="1.0" \

@@ -53,7 +53,7 @@ lto = false
 
 [profile.release]
 opt-level = 3
-lto = false
+lto = true
 debug = true
 
 [replace."serenity:0.5.8"]

@@ -177,10 +177,10 @@ impl Handler<DiscordEvent> for Discord {
         use self::DiscordEvent::*;
         match msg {
             Ready { ready } => self.on_ready(ready),
-            GuildCreate { guild, is_new } => self.on_guild_create(guild, is_new),
+            GuildCreate { guild } => self.on_guild_create(guild),
             GuildMemberAddition { guild_id, member } => self.on_guild_member_addition(guild_id, member),
             GuildMemberRemoval { guild_id, user } => self.on_guild_member_removal(guild_id, user),
-            GuildMemberUpdate { member } => self.on_guild_member_update(member),
+            GuildMemberUpdate { event } => self.on_guild_member_update(event),
             Message { msg } => self.on_message(msg).unwrap(),
             _ => {
                 info!("Unknown event: {:?}", msg);
@@ -194,7 +194,7 @@ impl Discord {
         self.current_user = Some(user);
     }
 
-    fn on_guild_create(&mut self, guild: Guild, _is_new: bool) {
+    fn on_guild_create(&mut self, guild: Guild) {
         let mut new_channels = vec![];
         for channel in guild.channels.values() {
             let chan = channel.read();
@@ -226,8 +226,11 @@ impl Discord {
         self.members.remove(&(guild_id, user.id));
     }
 
-    fn on_guild_member_update(&mut self, member: Member) {
-        self.on_guild_member_addition(member.guild_id, member)
+    fn on_guild_member_update(&mut self, event: GuildMemberUpdateEvent) {
+        if let Some(member) = self.members.get_mut(&(event.guild_id, event.user.id)) {
+            member.nick = event.nick;
+            member.roles = event.roles;
+        }
     }
 
     fn on_message(

@@ -170,10 +170,10 @@ macro_rules! args {
 impl_event_handler! {
     ready(ready: Ready) => Ready,
     resume(_: ResumedEvent) => Resume,
-    guild_create(guild: Guild, is_new: bool) => GuildCreate,
+    guild_create(guild: Guild) => GuildCreate,
     guild_member_addition(guild_id: GuildId, member: Member) => GuildMemberAddition,
-    guild_member_removal(guild_id: GuildId, user: User, _: Option<Member>) => GuildMemberRemoval,
-    guild_member_update(_: Option<Member>, member: Member) => GuildMemberUpdate,
+    guild_member_removal(guild_id: GuildId, user: User) => GuildMemberRemoval,
+    guild_member_update(event: GuildMemberUpdateEvent) => GuildMemberUpdate,
     channel_create(channel: Arc<RwLock<GuildChannel>>) => ChannelCreate,
     channel_delete(channel: Arc<RwLock<GuildChannel>>) => ChannelDelete,
     message(msg: channel::Message) => Message,

@@ -27,11 +27,21 @@ pin-utils = "0.1.0-alpha.2"
 regex = "1.0"
 serde = "1.0"
 serde_derive = "1.0"
-serenity = "0.5"
 threadpool = "1.7"
 tokio = "0.1.8"
 toml = "0.4"
 typemap = "0.3"
+
+[dependencies.serenity]
+default_features = false
+features =  [
+    "builder",
+    "client",
+    "gateway",
+    "http",
+    "model",
+]
+version = "0.5"
 
 [dev-dependencies]
 rand = "0.5"
@@ -45,3 +55,7 @@ lto = false
 opt-level = 3
 lto = false
 debug = true
+
+[replace."serenity:0.5.8"]
+git = "https://github.com/serenity-rs/serenity"
+rev = "669da407111f924a5dc498c15c0c0b43f7b42411"

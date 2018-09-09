@@ -10,6 +10,9 @@ pub enum Error {
     #[fail(display = "Environment variable error: {}", _0)]
     EnvironmentVariable(#[cause] std::env::VarError),
 
+    #[fail(display = "{}", _0)]
+    Mailbox(actix::MailboxError, Backtrace),
+
     #[fail(display = "I/O error: {}", _0)]
     Io(#[cause] std::io::Error, Backtrace),
 
@@ -26,6 +29,12 @@ pub enum Error {
 impl Error {
     pub fn configuration<E: std::fmt::Display>(err: E) -> Self {
         Error::Configuration(err.to_string(), Backtrace::new())
+    }
+}
+
+impl From<actix::MailboxError> for Error {
+    fn from(err: actix::MailboxError) -> Self {
+        Error::Mailbox(err, Backtrace::new())
     }
 }
 

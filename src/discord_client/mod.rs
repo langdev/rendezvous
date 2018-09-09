@@ -33,7 +33,7 @@ use crate::{
 
 use self::channel::*;
 use self::handler::{ClientState, DiscordEvent, new_client};
-use self::worker::{DiscordWorker, SendMessage};
+use self::worker::{DiscordWorker, GetChannel, SendMessage};
 
 
 pub struct Discord {
@@ -211,7 +211,7 @@ impl Handler<signal::Signal> for Discord {
 impl Handler<DiscordEvent> for Discord {
     type Result = ();
 
-    fn handle(&mut self, msg: DiscordEvent, _: &mut Self::Context) {
+    fn handle(&mut self, msg: DiscordEvent, ctx: &mut Self::Context) {
         debug!("Discord receives DiscordEvent: {:?}", msg);
         use self::DiscordEvent::*;
         match msg {
@@ -222,7 +222,7 @@ impl Handler<DiscordEvent> for Discord {
             GuildMemberAddition { guild_id, member } => self.on_guild_member_addition(guild_id, member),
             GuildMemberRemoval { guild_id, user } => self.on_guild_member_removal(guild_id, user),
             GuildMemberUpdate { event } => self.on_guild_member_update(event),
-            Message { msg } => self.on_message(msg).unwrap(),
+            Message { msg } => self.on_message(ctx, msg).unwrap(),
             _ => {
                 info!("Unknown event: {:?}", msg);
             }
@@ -293,25 +293,47 @@ impl Discord {
         }
     }
 
-    fn on_message(&mut self, msg: SerenityMessage) -> Result<(), Error> {
+    fn on_message(&mut self, ctx: &mut <Self as Actor>::Context, msg: SerenityMessage) -> Result<(), Error> {
         if msg.kind != MessageType::Regular ||
             self.current_user.as_ref().map(|u| u.id == msg.author.id).unwrap_or(false)
         {
             return Ok(());
         }
-        let channel = if let Some(ch) = self.find_channel_by_id(msg.channel_id) {
-            ch
+        if self.find_channel_by_id(msg.channel_id).is_some() {
+            ctx.notify(HandleMessage { message: msg });
         } else {
-            let ch = msg.channel_id.to_channel()?;
-            if let Some(id) = self.register_channel(ch) {
-                self.find_channel_by_id(id).expect("unreachable")
-            } else {
-                return Ok(());
-            }
-        };
-        let channel_id = match channel {
-            ChannelRef::Guild(name, channel) => {
-                // let nickname = channel.guild_id.member(msg.author.id)?.nick.unwrap_or(msg.author.name);
+            ctx.spawn(
+                fut::wrap_future(self.worker.send(GetChannel { channel: msg.channel_id }))
+                .then(move |res, actor: &mut Self, ctx| match res.map_err(Error::from).and_then(|r| r) {
+                    Ok(ch) => {
+                        if actor.register_channel(ch).is_some() {
+                            ctx.notify(HandleMessage { message: msg });
+                        }
+                        fut::ok(())
+                    }
+                    Err(err) => {
+                        error!("{}", err);
+                        fut::err(())
+                    }
+                })
+            );
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Message)]
+struct HandleMessage {
+    message: SerenityMessage,
+}
+
+impl Handler<HandleMessage> for Discord {
+    type Result = ();
+
+    fn handle(&mut self, msg: HandleMessage, _: &mut Self::Context) {
+        let msg = msg.message;
+        let channel_id = match self.find_channel_by_id(msg.channel_id) {
+            Some(ChannelRef::Guild(name, channel)) => {
                 let nickname = self.members.get(&(channel.guild_id, msg.author.id))
                     .and_then(|m| m.nick.as_ref())
                     .unwrap_or(&msg.author.name);
@@ -321,17 +343,16 @@ impl Discord {
                     .content(msg.content)
                     .build().unwrap();
                 Bus::do_publish(self.bus_id, m);
-                return Ok(());
+                return;
             }
-            ChannelRef::Private(ch) => ch.id,
+            Some(ChannelRef::Private(ch)) => ch.id,
+            _ => { return; }
         };
-        if let Some(content) = self.handle_bot_command(msg) {
-            self.worker.do_send(SendMessage {
-                channel: channel_id,
-                content,
-            });
-        }
-        Ok(())
+        let response = self.handle_bot_command(msg);
+        self.worker.do_send(SendMessage {
+            channel: channel_id,
+            content: response,
+        });
     }
 }
 

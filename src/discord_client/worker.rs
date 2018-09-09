@@ -51,3 +51,17 @@ impl Handler<SendMessage> for DiscordWorker {
         Ok(())
     }
 }
+
+#[derive(Debug, Message)]
+#[rtype(result = "Result<serenity::model::channel::Channel, crate::Error>")]
+pub(super) struct GetChannel {
+    pub(super) channel: ChannelId,
+}
+
+impl Handler<GetChannel> for DiscordWorker {
+    type Result = Result<Channel, Error>;
+
+    fn handle(&mut self, msg: GetChannel, _: &mut Self::Context) -> Self::Result {
+        msg.channel.to_channel().map_err(Error::from)
+    }
+}

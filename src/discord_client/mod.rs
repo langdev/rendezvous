@@ -73,12 +73,14 @@ impl Discord {
         self.client_state = Some(state);
     }
 
-    fn find_channels<'a>(&'a self, channel: &'a str) -> impl Iterator<Item = &'a GuildChannel> + 'a {
+    fn guild_channels(&self) -> impl Iterator<Item = (&str, &GuildChannel)> {
         self.channels.values()
-            .filter_map(move |ch| match ch.as_ref() {
-                ChannelRef::Guild(name, ch) if name == channel => Some(ch),
-                _ => None,
-            })
+            .filter_map(|ch| ch.as_guild())
+    }
+
+    fn find_channels<'a>(&'a self, channel: &'a str) -> impl Iterator<Item = &'a GuildChannel> + 'a {
+        self.guild_channels()
+            .filter_map(move |(name, ch)| if name == channel { Some(ch) } else { None })
     }
 
     fn find_channel_by_id(&self, id: ChannelId) -> Option<ChannelRef<'_>> {
@@ -89,22 +91,12 @@ impl Discord {
     }
 
     fn register_channel(&mut self, channel: Channel) -> Option<ChannelId> {
-        match channel {
-            SerenityChannel::Guild(ch) => {
-                let ch = ch.read();
-                if let Some((_, ch)) = self.register_guild_channel(&ch) {
-                    Some(ch.id)
-                } else {
-                    None
-                }
-            }
-            SerenityChannel::Private(ch) => {
-                let ch = ch.read();
-                let ch = self.channels.entry(ch.id)
-                    .or_insert_with(|| channel::Channel::Private(ch.clone()));
-                Some(ch.as_ref().id())
-            }
-            _ => None,
+        let id = channel.id();
+        if let Some(ch) = channel::Channel::from_discord(channel) {
+            self.channels.insert(id, ch);
+            Some(id)
+        } else {
+            None
         }
     }
 
@@ -239,13 +231,20 @@ impl Handler<DiscordEvent> for Discord {
 }
 
 impl Discord {
-    fn on_ready(&mut self, Ready { user, guilds, .. }: Ready) {
+    fn on_ready(&mut self, Ready { user, guilds, private_channels, .. }: Ready) {
         self.current_user = Some(user);
         self.guilds.extend(
             guilds.into_iter().filter_map(|g| match g {
                 GuildStatus::OnlinePartialGuild(g) => Some((g.id, g.name)),
                 GuildStatus::OnlineGuild(g) => Some((g.id, g.name)),
                 _ => None,
+            })
+        );
+        self.channels.extend(
+            private_channels.into_iter()
+            .filter_map(|(id, ch)| {
+                channel::Channel::from_discord(ch)
+                    .map(|ch| (id, ch))
             })
         );
     }

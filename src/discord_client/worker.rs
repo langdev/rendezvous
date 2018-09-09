@@ -65,3 +65,17 @@ impl Handler<GetChannel> for DiscordWorker {
         msg.channel.to_channel().map_err(Error::from)
     }
 }
+
+#[derive(Debug, Message)]
+#[rtype(result = "Result<(), crate::Error>")]
+pub(super) struct BroadcastTyping {
+    pub(super) channel: ChannelId,
+}
+
+impl Handler<BroadcastTyping> for DiscordWorker {
+    type Result = Result<(), Error>;
+
+    fn handle(&mut self, msg: BroadcastTyping, _: &mut Self::Context) -> Self::Result {
+        msg.channel.broadcast_typing().map_err(Error::from)
+    }
+}

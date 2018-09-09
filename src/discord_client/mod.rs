@@ -33,7 +33,7 @@ use crate::{
 
 use self::channel::*;
 use self::handler::{ClientState, DiscordEvent, new_client};
-use self::worker::{DiscordWorker, GetChannel, SendMessage};
+use self::worker::{BroadcastTyping, DiscordWorker, GetChannel, SendMessage};
 
 
 pub struct Discord {
@@ -110,6 +110,7 @@ impl Discord {
     }
 
     fn handle_bot_command(&mut self, msg: SerenityMessage) -> Option<String> {
+        self.worker.do_send(BroadcastTyping { channel: msg.channel_id });
         let content = msg.content.trim();
         if content.starts_with("ping") {
             return Some("pong".to_owned());

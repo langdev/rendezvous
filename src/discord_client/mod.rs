@@ -275,7 +275,9 @@ impl Discord {
     }
 
     fn on_message(&mut self, msg: SerenityMessage) -> Result<(), Error> {
-        if self.current_user.as_ref().map(|u| u.id == msg.author.id).unwrap_or(false) {
+        if msg.kind != MessageType::Regular ||
+            self.current_user.as_ref().map(|u| u.id == msg.author.id).unwrap_or(false)
+        {
             return Ok(());
         }
         let channel = if let Some(ch) = self.find_channel_by_id(msg.channel_id) {

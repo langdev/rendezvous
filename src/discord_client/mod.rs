@@ -40,6 +40,7 @@ pub struct Discord {
     config: Arc<Config>,
     bus_id: BusId,
 
+    guilds: HashMap<GuildId, String>,
     channels: HashMap<ChannelId, channel::Channel>,
     members: HashMap<(GuildId, UserId), Member>,
 
@@ -56,6 +57,7 @@ impl Discord {
         Ok(Discord {
             config,
             bus_id: Bus::new_id(),
+            guilds: HashMap::new(),
             channels: HashMap::new(),
             members: HashMap::new(),
             client_state: None,
@@ -223,6 +225,8 @@ impl Handler<DiscordEvent> for Discord {
         match msg {
             Ready { ready } => self.on_ready(ready),
             GuildCreate { guild } => self.on_guild_create(guild),
+            GuildDelete { guild } => self.on_guild_delete(guild),
+            GuildUpdate { guild } => self.on_guild_update(guild),
             GuildMemberAddition { guild_id, member } => self.on_guild_member_addition(guild_id, member),
             GuildMemberRemoval { guild_id, user } => self.on_guild_member_removal(guild_id, user),
             GuildMemberUpdate { event } => self.on_guild_member_update(event),
@@ -235,11 +239,19 @@ impl Handler<DiscordEvent> for Discord {
 }
 
 impl Discord {
-    fn on_ready(&mut self, Ready { user, .. }: Ready) {
+    fn on_ready(&mut self, Ready { user, guilds, .. }: Ready) {
         self.current_user = Some(user);
+        self.guilds.extend(
+            guilds.into_iter().filter_map(|g| match g {
+                GuildStatus::OnlinePartialGuild(g) => Some((g.id, g.name)),
+                GuildStatus::OnlineGuild(g) => Some((g.id, g.name)),
+                _ => None,
+            })
+        );
     }
 
     fn on_guild_create(&mut self, guild: Guild) {
+        self.guilds.insert(guild.id, guild.name);
         let mut new_channels = vec![];
         for channel in guild.channels.values() {
             let chan = channel.read();
@@ -256,6 +268,14 @@ impl Discord {
         for (id, member) in &guild.members {
             self.members.insert((guild.id, *id), member.clone());
         }
+    }
+
+    fn on_guild_delete(&mut self, guild: PartialGuild) {
+        self.guilds.remove(&guild.id);
+    }
+
+    fn on_guild_update(&mut self, guild: PartialGuild) {
+        self.guilds.insert(guild.id, guild.name);
     }
 
     fn on_guild_member_addition(&mut self, guild_id: GuildId, member: Member) {

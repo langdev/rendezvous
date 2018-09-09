@@ -171,6 +171,8 @@ impl_event_handler! {
     ready(ready: Ready) => Ready,
     resume(_: ResumedEvent) => Resume,
     guild_create(guild: Guild) => GuildCreate,
+    guild_delete(guild: PartialGuild) => GuildDelete,
+    guild_update(guild: PartialGuild) => GuildUpdate,
     guild_member_addition(guild_id: GuildId, member: Member) => GuildMemberAddition,
     guild_member_removal(guild_id: GuildId, user: User) => GuildMemberRemoval,
     guild_member_update(event: GuildMemberUpdateEvent) => GuildMemberUpdate,

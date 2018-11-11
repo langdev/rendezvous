@@ -1,10 +1,11 @@
 use core::ops::FnOnce;
-use core::pin::PinMut;
+use core::pin::Pin;
+use core::task::Poll;
 
-use actix::prelude::*;
-use actix::dev::{MessageResponse, ResponseChannel, ToEnvelope};
-use futures::{compat::*, prelude::*};
-use pin_utils::unsafe_pinned;
+use ::actix::prelude::*;
+use ::actix::dev::{MessageResponse, ResponseChannel, ToEnvelope};
+use ::futures::{compat::*, prelude::*};
+use ::pin_utils::unsafe_pinned;
 
 use crate::bus::{self, Bus, BusId};
 
@@ -74,7 +75,7 @@ where
 
 
 type WaitSubscribeInner<A, M> = future::AndThen<
-    Compat<Request<A, GetBusId>, ()>,
+    Compat01As03<Request<A, GetBusId>>,
     bus::WaitSubscribe<M>,
     ToSubscribe<M>,
 >;
@@ -128,14 +129,14 @@ where
 {
     type Output = Result<(), MailboxError>;
 
-    fn poll(mut self: PinMut<'_, Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        self.inner().poll(cx)
+    fn poll(mut self: Pin<&mut Self>, lw: &std::task::LocalWaker) -> Poll<Self::Output> {
+        self.inner().poll(lw)
     }
 }
 
 
 type WaitPublishInner<A, M> = future::AndThen<
-    Compat<Request<A, GetBusId>, ()>,
+    Compat01As03<Request<A, GetBusId>>,
     bus::WaitPublish<M>,
     ToPublish<M>,
 >;
@@ -189,7 +190,7 @@ where
 {
     type Output = Result<(), MailboxError>;
 
-    fn poll(mut self: PinMut<'_, Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        self.inner().poll(cx)
+    fn poll(mut self: Pin<&mut Self>, lw: &std::task::LocalWaker) -> Poll<Self::Output> {
+        self.inner().poll(lw)
     }
 }

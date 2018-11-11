@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use actix::actors::signal;
-use irc::{
+use ::actix::actors::signal;
+use ::irc::{
     client::{
         Client,
         IrcClient,
@@ -16,7 +16,7 @@ use irc::{
         Response as IrcResponse,
     },
 };
-use regex::Regex;
+use ::regex::Regex;
 
 use crate::{
     AddrExt,

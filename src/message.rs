@@ -1,5 +1,5 @@
-use actix::prelude::*;
-use derive_builder::Builder;
+use ::actix::prelude::*;
+use ::derive_builder::Builder;
 
 #[derive(Clone, Debug, Message)]
 #[rtype(result = "()")]

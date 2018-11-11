@@ -1,8 +1,8 @@
 use std::thread;
 use std::time::Duration;
 
-use actix::prelude::*;
-use serenity::{
+use ::actix::prelude::*;
+use ::serenity::{
     model::prelude::*,
 };
 
@@ -49,5 +49,33 @@ impl Handler<SendMessage> for DiscordWorker {
             }
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, Message)]
+#[rtype(result = "Result<serenity::model::channel::Channel, crate::Error>")]
+pub(super) struct GetChannel {
+    pub(super) channel: ChannelId,
+}
+
+impl Handler<GetChannel> for DiscordWorker {
+    type Result = Result<Channel, Error>;
+
+    fn handle(&mut self, msg: GetChannel, _: &mut Self::Context) -> Self::Result {
+        msg.channel.to_channel().map_err(Error::from)
+    }
+}
+
+#[derive(Debug, Message)]
+#[rtype(result = "Result<(), crate::Error>")]
+pub(super) struct BroadcastTyping {
+    pub(super) channel: ChannelId,
+}
+
+impl Handler<BroadcastTyping> for DiscordWorker {
+    type Result = Result<(), Error>;
+
+    fn handle(&mut self, msg: BroadcastTyping, _: &mut Self::Context) -> Self::Result {
+        msg.channel.broadcast_typing().map_err(Error::from)
     }
 }

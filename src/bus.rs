@@ -1,6 +1,7 @@
 use core::marker::{PhantomData, Unpin};
 use core::num::NonZeroUsize;
-use core::pin::PinMut;
+use core::pin::Pin;
+use core::task::Poll;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use typemap::{Key, SendMap};
@@ -141,11 +142,11 @@ impl<M: Message + Send + Clone + 'static> Handler<Publish<M>> for Bus where M::R
 
 
 pub struct WaitSubscribe<M> where M: Message + Send + 'static, M::Result: Send {
-    future: Compat<Request<Bus, Subscribe<M>>, ()>,
+    future: Compat01As03<Request<Bus, Subscribe<M>>>,
 }
 
 impl<M> WaitSubscribe<M> where M: Message + Send + 'static, M::Result: Send {
-    unsafe_pinned!(future: Compat<Request<Bus, Subscribe<M>>, ()>);
+    unsafe_pinned!(future: Compat01As03<Request<Bus, Subscribe<M>>>);
 
     fn new(addr: &Addr<Bus>, id: BusId, recipient: Recipient<M>) -> Self {
         WaitSubscribe { future: addr.send(Subscribe::new(id, recipient)).compat() }
@@ -157,18 +158,18 @@ impl<M> Unpin for WaitSubscribe<M> where M: Message + Send + 'static, M::Result:
 impl<M> Future for WaitSubscribe<M> where M: Message + Send + 'static, M::Result: Send {
     type Output = Result<(), MailboxError>;
 
-    fn poll(mut self: PinMut<'_, Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, lw: &std::task::LocalWaker) -> Poll<Self::Output> {
         debug!("WaitSubscribe::poll");
-        self.future().poll(cx)
+        self.future().poll(lw)
     }
 }
 
 pub struct WaitPublish<M> where M: Message + Send + Clone + 'static, M::Result: Send {
-    future: Compat<Request<Bus, Publish<M>>, ()>,
+    future: Compat01As03<Request<Bus, Publish<M>>>,
 }
 
 impl<M> WaitPublish<M> where M: Message + Send + Clone + 'static, M::Result: Send {
-    unsafe_pinned!(future: Compat<Request<Bus, Publish<M>>, ()>);
+    unsafe_pinned!(future: Compat01As03<Request<Bus, Publish<M>>>);
 
     fn new(addr: &Addr<Bus>, id: BusId, message: M) -> Self {
         WaitPublish { future: addr.send(Publish { sender: Some(id), message, }).compat() }
@@ -180,9 +181,9 @@ impl<M> Unpin for WaitPublish<M> where M: Message + Send + Clone + 'static, M::R
 impl<M> Future for WaitPublish<M> where M: Message + Send + Clone + 'static, M::Result: Send {
     type Output = Result<(), MailboxError>;
 
-    fn poll(mut self: PinMut<'_, Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, lw: &std::task::LocalWaker) -> Poll<Self::Output> {
         debug!("WaitPublish::poll");
-        self.future().poll(cx)
+        self.future().poll(lw)
     }
 }
 

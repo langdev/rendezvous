@@ -1,5 +1,5 @@
-use actix::prelude::*;
-use log::*;
+use ::actix::prelude::*;
+use ::log::*;
 
 
 pub struct SubscriptionList<K, M>
@@ -62,9 +62,9 @@ where
 mod test {
     use std::sync::Arc;
 
-    use actix::prelude::*;
-    use futures::compat::*;
-    use parking_lot::Mutex;
+    use ::actix::prelude::*;
+    use ::futures::compat::*;
+    use ::parking_lot::Mutex;
 
     use crate::message::Terminate;
 

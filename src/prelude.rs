@@ -1,24 +1,20 @@
 use core::marker::Unpin;
 
-use futures::{
-    compat::TokioDefaultSpawner as Spawner,
-};
-
-pub use actix::prelude::*;
-pub use futures::{compat::*, prelude::*};
-pub use log::*;
+pub use ::actix::prelude::*;
+pub use ::futures::{compat::*, prelude::*};
+pub use ::log::*;
 
 pub trait TokioFutureCompatExt: TryFuture {
-    fn tokio_compat(self) -> Compat<Self, Spawner> where Self: Sized + Unpin {
-        self.compat(Spawner)
+    fn tokio_compat(self) -> Compat<Self> where Self: Sized + Unpin {
+        self.compat()
     }
 }
 
 impl<F> TokioFutureCompatExt for F where F: TryFuture { }
 
 pub trait TokioStreamCompatExt: TryStream {
-    fn tokio_compat(self) -> Compat<Self, Spawner> where Self: Sized + Unpin {
-        self.compat(Spawner)
+    fn tokio_compat(self) -> Compat<Self> where Self: Sized + Unpin {
+        self.compat()
     }
 }
 
@@ -31,7 +27,7 @@ pub trait AsyncContextExt<A>: AsyncContext<A> where A: Actor<Context = Self> {
         S::Item: Message,
         A: Handler<S::Item>,
     {
-        self.add_message_stream(fut.map(|e| Ok(e)).compat(Spawner))
+        self.add_message_stream(fut.map(|e| Ok(e)).compat())
     }
 }
 

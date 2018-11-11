@@ -1,8 +1,8 @@
 use std::thread;
 use std::time::Duration;
 
-use actix::prelude::*;
-use serenity::{
+use ::actix::prelude::*;
+use ::serenity::{
     model::prelude::*,
 };
 

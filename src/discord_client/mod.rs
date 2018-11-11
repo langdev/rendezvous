@@ -352,7 +352,7 @@ impl Handler<HandleMessage> for Discord {
         let response = self.handle_bot_command(msg);
         self.worker.do_send(SendMessage {
             channel: channel_id,
-            content: response,
+            content: response.unwrap(),
         });
     }
 }

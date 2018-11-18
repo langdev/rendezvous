@@ -160,7 +160,7 @@ impl Actor for Discord {
             Some(ClientState::Running { term_rx, shard_manager, .. }) => {
                 shard_manager.lock().shutdown_all();
                 ctx.run_later(Duration::from_secs(2), |_, ctx| {
-                    ctx.spawn(fut::wrap_future(term_rx.tokio_compat())
+                    ctx.spawn(fut::wrap_future(term_rx.compat())
                         .then(|res, _, _| {
                             debug!("Discord client thread terminated: {:?}", res);
                             fut::ok(())

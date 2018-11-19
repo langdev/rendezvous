@@ -39,7 +39,7 @@ features =  [
     "http",
     "model",
 ]
-version = "0.5"
+version = "=0.5.10"
 
 [dev-dependencies]
 rand = "0.5"
@@ -53,7 +53,3 @@ lto = false
 opt-level = 3
 lto = true
 debug = true
-
-[replace."serenity:0.5.8"]
-git = "https://github.com/serenity-rs/serenity"
-rev = "669da407111f924a5dc498c15c0c0b43f7b42411"

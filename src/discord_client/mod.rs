@@ -15,7 +15,6 @@ use futures::{
     channel::mpsc,
 };
 use serenity::model::{
-    channel::Channel as SerenityChannel,
     prelude::*,
     prelude::Message as SerenityMessage,
 };

@@ -22,8 +22,6 @@ mod message;
 mod prelude;
 mod util;
 
-use failure::Fail;
-
 pub use crate::{
     bus::{Bus, BusId},
     config::{Config, fetch_config},

@@ -64,12 +64,3 @@ pub(super) enum ChannelRef<'a> {
     Guild(&'a str, &'a GuildChannel),
     Private(&'a PrivateChannel),
 }
-
-impl<'a> ChannelRef<'a> {
-    pub(super) fn id(&self) -> ChannelId {
-        match self {
-            ChannelRef::Guild(_, ch) => ch.id,
-            ChannelRef::Private(ch) => ch.id,
-        }
-    }
-}

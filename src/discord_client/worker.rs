@@ -3,7 +3,9 @@ use std::time::Duration;
 
 use ::actix::prelude::*;
 use serenity::model::prelude::*;
-use serenity::http;
+use serenity::builder::ExecuteWebhook;
+use serenity::utils::vecmap_to_json_map;
+use serenity::http::raw::execute_webhook;
 
 use crate::Error;
 
@@ -43,33 +45,51 @@ impl Handler<SendMessage> for DiscordWorker {
         // TODO: 설정을 어딘가 괜찮은곳에 저장해야함
         let id = 245037420704169985;
         let token = "ig5AO-wdVWpCBtUUMxmgsWryqgsW3DChbKYOINftJ4DCrUbnkedoYZD0VOH1QLr-S3sV";
-        let webhook = http::get_webhook_with_token(id, token).expect("valid webhook");
 
-        loop {
-            // 메세지 전송
-            let result = if let Some(nick) = &msg.nickname {
-                // 닉네임이 있음; Webhook을 사용해 전송함
-                webhook.execute(true, |w| w.content(&msg.content).username(nick)).map(|_| ())
-            } else {
-                // 닉네임이 없음; Bot API를 사용해 전송함
-                msg.channel.send_message(|m| m.content(&msg.content)).map(|_| ())
-            };
+        let send = || if let Some(nick) = &msg.nickname {
+            // 닉네임이 있음; Webhook을 사용해 전송함
 
-            match result {
-                // 성공할경우 결과 반환
-                Ok(()) => {
-                    return Ok(())
+            // 닉네임을 [2, 32] 글자 범위로 바꿔야만 함
+            //
+            // References:
+            //   https://discordapp.com/developers/docs/resources/user#usernames-and-nicknames
+            //   https://github.com/reactiflux/discord-irc/pull/454
+            let truncated_nick = &format!("{:_<2}", nick)[..32];
+
+            // 웹훅 발송
+            let data = ExecuteWebhook::default().content(&msg.content).username(truncated_nick);
+            let map = vecmap_to_json_map(data.0);
+            execute_webhook(id, token, false, &map).map(|_| ())
+        } else {
+            // 닉네임이 없음; Bot API를 사용해 전송함
+            msg.channel.send_message(|m| m.content(&msg.content)).map(|_| ())
+        };
+
+        // 메세지 전송
+        let result = send();
+
+        // 실패한경우 유한번 재시도함
+        if let Err(mut error) = result {
+            for _ in 0..1000 {
+                match error {
+                    // 아래 세 유형의 에러일경우 재시도
+                    Http(_) | Hyper(_) | WebSocket(_) => (),
+                    // 그 외에는 포기하고 즉시 에러 반환
+                    _ => break
                 }
-                // 다음 에러중 하나일경우 일정시간 대기 후 재시도
-                Err(Http(_)) | Err(Hyper(_)) | Err(WebSocket(_)) => {
-                    thread::sleep(Duration::from_millis(100))
-                }
-                // 모르는 유형의 에러일경우 즉시 포기
-                Err(e) => {
-                    return Err(From::from(e))
+
+                thread::sleep(Duration::from_millis(100));
+
+                match send() {
+                    Ok(_) => return Ok(()),
+                    Err(e) => error = e,
                 }
             }
+
+            return Err(From::from(error))
         }
+
+        Ok(())
     }
 }
 

@@ -29,6 +29,9 @@ impl Actor for DiscordWorker {
 #[rtype(result = "Result<(), crate::Error>")]
 pub(super) struct SendMessage {
     pub(super) channel: ChannelId,
+    /// 닉네임이 지정되지 않은 경우 Discord Bot API의 `send_message` 함수를 사용하고,
+    /// 닉네임이 지정된 경우 Discord WebHook을 사용하여 주어진 닉네임과 함께 메세지를 전송한다.
+    pub(super) nickname: Option<String>,
     pub(super) content: String,
 }
 

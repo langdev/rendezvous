@@ -351,6 +351,7 @@ impl Handler<HandleMessage> for Discord {
         let response = self.handle_bot_command(msg);
         self.worker.do_send(SendMessage {
             channel: channel_id,
+            nickname: None,
             content: response.unwrap(),
         });
     }
@@ -375,8 +376,12 @@ impl Handler<MessageCreated> for Discord {
             return;
         }
         for channel in self.find_channels(&msg.channel[1..]) {
-            let m = format!("<{}> {}", msg.nickname, msg.content);
-            self.worker.do_send(SendMessage { channel: channel.id, content: m });
+            let msg = SendMessage {
+                channel: channel.id,
+                nickname: Some(msg.nickname.clone()),
+                content: msg.content.clone(),
+            };
+            self.worker.do_send(msg);
         }
     }
 }

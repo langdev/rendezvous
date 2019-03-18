@@ -1,5 +1,5 @@
 // async fn
-#![feature(async_await, await_macro, futures_api, pin)]
+#![feature(async_await, await_macro, futures_api)]
 // impl FnOnce for T
 #![feature(arbitrary_self_types, fn_traits, unboxed_closures)]
 // std::process::Termination
@@ -7,8 +7,7 @@
 
 #![deny(rust_2018_idioms)]
 #![deny(proc_macro_derive_resolution_fallback)]
-
-#![recursion_limit="128"]
+#![recursion_limit = "128"]
 
 #[macro_use]
 mod macros;
@@ -22,11 +21,9 @@ mod message;
 mod prelude;
 mod util;
 
-use failure::Fail;
-
 pub use crate::{
     bus::{Bus, BusId},
-    config::{Config, fetch_config},
+    config::{fetch_config, Config},
     error::Error,
     util::{AddrExt, GetBusId},
 };
@@ -35,7 +32,6 @@ use crate::{
     message::{ChannelUpdated, MessageCreated},
     prelude::*,
 };
-
 
 fn main() -> Result<(), failure::Error> {
     env_logger::init();
@@ -58,14 +54,17 @@ async fn run() -> Result<(), failure::Error> {
     let _irc = irc_client::Irc::new()?.start();
     let _discord = discord_client::Discord::new()?.start();
 
-    let inspector = Inspector { counter: 2, bus_id: Bus::new_id() }.start();
+    let inspector = Inspector {
+        counter: 2,
+        bus_id: Bus::new_id(),
+    }
+    .start();
     let _ = await!(inspector.subscribe::<ChannelUpdated>());
     let _ = await!(inspector.subscribe::<MessageCreated>());
     let _ = await!(inspector.subscribe::<message::Terminate>());
 
     Ok(())
 }
-
 
 struct Inspector {
     counter: i32,

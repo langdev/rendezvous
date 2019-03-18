@@ -1,4 +1,4 @@
-use core::marker::{PhantomData, Unpin};
+use core::marker::PhantomData;
 use core::num::NonZeroUsize;
 use core::pin::Pin;
 use core::task::Poll;
@@ -158,9 +158,9 @@ impl<M> Unpin for WaitSubscribe<M> where M: Message + Send + 'static, M::Result:
 impl<M> Future for WaitSubscribe<M> where M: Message + Send + 'static, M::Result: Send {
     type Output = Result<(), MailboxError>;
 
-    fn poll(mut self: Pin<&mut Self>, lw: &std::task::LocalWaker) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, waker: &std::task::Waker) -> Poll<Self::Output> {
         debug!("WaitSubscribe::poll");
-        self.future().poll(lw)
+        self.future().poll(waker)
     }
 }
 
@@ -181,9 +181,9 @@ impl<M> Unpin for WaitPublish<M> where M: Message + Send + Clone + 'static, M::R
 impl<M> Future for WaitPublish<M> where M: Message + Send + Clone + 'static, M::Result: Send {
     type Output = Result<(), MailboxError>;
 
-    fn poll(mut self: Pin<&mut Self>, lw: &std::task::LocalWaker) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, waker: &std::task::Waker) -> Poll<Self::Output> {
         debug!("WaitPublish::poll");
-        self.future().poll(lw)
+        self.future().poll(waker)
     }
 }
 

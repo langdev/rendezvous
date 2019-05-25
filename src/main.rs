@@ -1,5 +1,5 @@
 // async fn
-#![feature(async_await, await_macro, futures_api)]
+#![feature(async_await, await_macro)]
 // impl FnOnce for T
 #![feature(arbitrary_self_types, fn_traits, unboxed_closures)]
 // std::process::Termination
@@ -59,9 +59,9 @@ async fn run() -> Result<(), failure::Error> {
         bus_id: Bus::new_id(),
     }
     .start();
-    let _ = await!(inspector.subscribe::<ChannelUpdated>());
-    let _ = await!(inspector.subscribe::<MessageCreated>());
-    let _ = await!(inspector.subscribe::<message::Terminate>());
+    let _ = inspector.subscribe::<ChannelUpdated>().await;
+    let _ = inspector.subscribe::<MessageCreated>().await;
+    let _ = inspector.subscribe::<message::Terminate>().await;
 
     Ok(())
 }

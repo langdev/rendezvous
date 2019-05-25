@@ -130,12 +130,12 @@ impl Actor for Irc {
         ctx.add_stream(self.client.stream());
         let addr = ctx.address();
         async fn subscribe(addr: &Addr<Irc>) -> Result<(), MailboxError> {
-            await!(addr.subscribe::<ChannelUpdated>())?;
-            await!(addr.subscribe::<MessageCreated>())?;
+            addr.subscribe::<ChannelUpdated>().await?;
+            addr.subscribe::<MessageCreated>().await?;
             Ok(())
         }
         Arbiter::spawn_async(async move {
-            if let Err(err) = await!(subscribe(&addr)) {
+            if let Err(err) = subscribe(&addr).await {
                 error!("Failed to subscribe: {}", err);
                 addr.do_send(Terminate);
             }

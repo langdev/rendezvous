@@ -2,8 +2,8 @@ use core::ops::FnOnce;
 use core::pin::Pin;
 use core::task::Poll;
 
-use ::actix::prelude::*;
 use ::actix::dev::{MessageResponse, ResponseChannel, ToEnvelope};
+use ::actix::prelude::*;
 use ::futures::{compat::*, prelude::*};
 use ::pin_utils::unsafe_pinned;
 
@@ -11,11 +11,9 @@ use crate::bus::{self, Bus, BusId};
 
 pub mod subscription;
 
-
 #[derive(Clone, Message)]
 #[rtype(result = "crate::bus::BusId")]
 pub struct GetBusId;
-
 
 impl<A: Actor, M: Message<Result = BusId>> MessageResponse<A, M> for BusId {
     fn handle<R: ResponseChannel<M>>(self, _: &mut A::Context, tx: Option<R>) {
@@ -23,25 +21,24 @@ impl<A: Actor, M: Message<Result = BusId>> MessageResponse<A, M> for BusId {
     }
 }
 
-
 pub trait AddrExt {
     type Actor: Actor + Handler<GetBusId>;
 
     fn subscribe<M>(&self) -> WaitSubscribe<<Self as AddrExt>::Actor, M>
     where
         <Self as AddrExt>::Actor: Handler<M>,
-        <<Self as AddrExt>::Actor as Actor>::Context: ToEnvelope<<Self as AddrExt>::Actor, GetBusId>,
+        <<Self as AddrExt>::Actor as Actor>::Context:
+            ToEnvelope<<Self as AddrExt>::Actor, GetBusId>,
         <<Self as AddrExt>::Actor as Actor>::Context: ToEnvelope<<Self as AddrExt>::Actor, M>,
         M: Message + Send + Clone + 'static,
-        M::Result: Send,
-    ;
+        M::Result: Send;
 
     fn publish<M>(&self, message: M) -> WaitPublish<<Self as AddrExt>::Actor, M>
     where
-        <<Self as AddrExt>::Actor as Actor>::Context: ToEnvelope<<Self as AddrExt>::Actor, GetBusId>,
+        <<Self as AddrExt>::Actor as Actor>::Context:
+            ToEnvelope<<Self as AddrExt>::Actor, GetBusId>,
         M: Message + Send + Clone + 'static,
-        M::Result: Send,
-    ;
+        M::Result: Send;
 }
 
 impl<A> AddrExt for Addr<A>
@@ -73,12 +70,8 @@ where
     }
 }
 
-
-type WaitSubscribeInner<A, M> = future::AndThen<
-    Compat01As03<Request<A, GetBusId>>,
-    bus::WaitSubscribe<M>,
-    ToSubscribe<M>,
->;
+type WaitSubscribeInner<A, M> =
+    future::AndThen<Compat01As03<Request<A, GetBusId>>, bus::WaitSubscribe<M>, ToSubscribe<M>>;
 
 #[must_use = "futures do nothing unless polled"]
 pub struct WaitSubscribe<A, M>
@@ -101,17 +94,25 @@ where
     unsafe_pinned!(inner: WaitSubscribeInner<A, M>);
 
     fn new(addr: &Addr<A>) -> Self {
-        let inner = addr.send(GetBusId).compat()
-            .and_then(ToSubscribe { recipient: addr.clone().recipient::<M>() });
+        let inner = addr.send(GetBusId).compat().and_then(ToSubscribe {
+            recipient: addr.clone().recipient::<M>(),
+        });
         WaitSubscribe { inner }
     }
 }
 
-struct ToSubscribe<M> where M: Message + Send + 'static, M::Result: Send {
+struct ToSubscribe<M>
+where
+    M: Message + Send + 'static,
+    M::Result: Send,
+{
     recipient: Recipient<M>,
 }
 
-impl<M> FnOnce<(BusId,)> for ToSubscribe<M> where M: Message + Send + Clone + 'static, M::Result: Send
+impl<M> FnOnce<(BusId,)> for ToSubscribe<M>
+where
+    M: Message + Send + Clone + 'static,
+    M::Result: Send,
 {
     type Output = bus::WaitSubscribe<M>;
 
@@ -129,17 +130,13 @@ where
 {
     type Output = Result<(), MailboxError>;
 
-    fn poll(mut self: Pin<&mut Self>, lw: &std::task::LocalWaker) -> Poll<Self::Output> {
-        self.inner().poll(lw)
+    fn poll(self: Pin<&mut Self>, ctx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        self.inner().poll(ctx)
     }
 }
 
-
-type WaitPublishInner<A, M> = future::AndThen<
-    Compat01As03<Request<A, GetBusId>>,
-    bus::WaitPublish<M>,
-    ToPublish<M>,
->;
+type WaitPublishInner<A, M> =
+    future::AndThen<Compat01As03<Request<A, GetBusId>>, bus::WaitPublish<M>, ToPublish<M>>;
 
 #[must_use = "futures do nothing unless polled"]
 pub struct WaitPublish<A, M>
@@ -162,8 +159,7 @@ where
     unsafe_pinned!(inner: WaitPublishInner<A, M>);
 
     fn new(addr: &Addr<A>, message: M) -> Self {
-        let inner = addr.send(GetBusId).compat()
-            .and_then(ToPublish { message });
+        let inner = addr.send(GetBusId).compat().and_then(ToPublish { message });
         WaitPublish { inner }
     }
 }
@@ -172,7 +168,10 @@ struct ToPublish<M> {
     message: M,
 }
 
-impl<M> FnOnce<(BusId,)> for ToPublish<M> where M: Message + Send + Clone + 'static, M::Result: Send
+impl<M> FnOnce<(BusId,)> for ToPublish<M>
+where
+    M: Message + Send + Clone + 'static,
+    M::Result: Send,
 {
     type Output = bus::WaitPublish<M>;
 
@@ -190,7 +189,7 @@ where
 {
     type Output = Result<(), MailboxError>;
 
-    fn poll(mut self: Pin<&mut Self>, lw: &std::task::LocalWaker) -> Poll<Self::Output> {
-        self.inner().poll(lw)
+    fn poll(self: Pin<&mut Self>, ctx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        self.inner().poll(ctx)
     }
 }

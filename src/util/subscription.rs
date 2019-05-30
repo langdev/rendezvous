@@ -156,7 +156,7 @@ mod test {
             sleep_millis!(200).unwrap();
             assert_eq!(*goods.lock(), "Clothes");
 
-            await!(bob.send(Terminate).compat()).unwrap();
+            bob.send(Terminate).compat().await.unwrap();
             sub.send(None, Parcel::from("Drinks"));
             sleep_millis!(200).unwrap();
 

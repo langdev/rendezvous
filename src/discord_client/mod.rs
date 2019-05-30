@@ -6,35 +6,20 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use actix::{
-    self,
-    actors::signal,
-    fut,
-};
-use futures::{
-    channel::mpsc,
-};
-use serenity::model::{
-    channel::Channel as SerenityChannel,
-    prelude::*,
-    prelude::Message as SerenityMessage,
-};
+use actix::{self, actors::signal, fut};
+use futures::channel::mpsc;
+use serenity::model::{prelude::Message as SerenityMessage, prelude::*};
 
 use crate::{
-    AddrExt,
-    Bus,
-    BusId,
-    Config,
-    Error,
     fetch_config,
     message::{ChannelUpdated, IrcReady, MessageCreated, Terminate},
     prelude::*,
+    AddrExt, Bus, BusId, Config, Error,
 };
 
 use self::channel::*;
-use self::handler::{ClientState, DiscordEvent, new_client};
+use self::handler::{new_client, ClientState, DiscordEvent};
 use self::worker::{BroadcastTyping, DiscordWorker, GetChannel, SendMessage};
-
 
 pub struct Discord {
     config: Arc<Config>,
@@ -74,11 +59,13 @@ impl Discord {
     }
 
     fn guild_channels(&self) -> impl Iterator<Item = (&str, &GuildChannel)> {
-        self.channels.values()
-            .filter_map(|ch| ch.as_guild())
+        self.channels.values().filter_map(|ch| ch.as_guild())
     }
 
-    fn find_channels<'a>(&'a self, channel: &'a str) -> impl Iterator<Item = &'a GuildChannel> + 'a {
+    fn find_channels<'a>(
+        &'a self,
+        channel: &'a str,
+    ) -> impl Iterator<Item = &'a GuildChannel> + 'a {
         self.guild_channels()
             .filter_map(move |(name, ch)| if name == channel { Some(ch) } else { None })
     }
@@ -100,17 +87,24 @@ impl Discord {
         }
     }
 
-    fn register_guild_channel<'a>(&'a mut self, channel: &GuildChannel) -> Option<(&'a str, &'a GuildChannel)> {
+    fn register_guild_channel<'a>(
+        &'a mut self,
+        channel: &GuildChannel,
+    ) -> Option<(&'a str, &'a GuildChannel)> {
         if channel.kind != ChannelType::Text {
             return None;
         }
-        let ch = self.channels.entry(channel.id)
+        let ch = self
+            .channels
+            .entry(channel.id)
             .or_insert_with(|| channel::Channel::Guild(channel.name.clone(), channel.clone()));
         ch.as_guild()
     }
 
     fn handle_bot_command(&mut self, msg: SerenityMessage) -> Option<String> {
-        self.worker.do_send(BroadcastTyping { channel: msg.channel_id });
+        self.worker.do_send(BroadcastTyping {
+            channel: msg.channel_id,
+        });
         let content = msg.content.trim();
         if content.starts_with("ping") {
             return Some("pong".to_owned());
@@ -141,36 +135,44 @@ impl Actor for Discord {
 
         let addr = ctx.address();
         async fn subscribe(addr: &Addr<Discord>) -> Result<(), MailboxError> {
-            // await!(addr.subscribe::<ChannelUpdated>())?;
-            await!(addr.subscribe::<IrcReady>())?;
-            await!(addr.subscribe::<MessageCreated>())?;
+            // addr.subscribe::<ChannelUpdated>().await?;
+            addr.subscribe::<IrcReady>().await?;
+            addr.subscribe::<MessageCreated>().await?;
             Ok(())
         }
-        Arbiter::spawn_async(async move {
-            if let Err(err) = await!(subscribe(&addr)) {
-                error!("Failed to subscribe: {}", err);
-                addr.do_send(Terminate);
+        Arbiter::spawn_async(
+            async move {
+                if let Err(err) = subscribe(&addr).await {
+                    error!("Failed to subscribe: {}", err);
+                    addr.do_send(Terminate);
+                }
             }
-        }.boxed());
+                .boxed(),
+        );
     }
 
     fn stopping(&mut self, ctx: &mut Self::Context) -> Running {
         let old_state = self.client_state.take();
         let ret = match old_state {
-            Some(ClientState::Running { term_rx, shard_manager, .. }) => {
+            Some(ClientState::Running {
+                term_rx,
+                shard_manager,
+                ..
+            }) => {
                 shard_manager.lock().shutdown_all();
                 ctx.run_later(Duration::from_secs(2), |_, ctx| {
-                    ctx.spawn(fut::wrap_future(term_rx.tokio_compat())
-                        .then(|res, _, _| {
-                            debug!("Discord client thread terminated: {:?}", res);
-                            fut::ok(())
-                        })
-                        .timeout(Duration::from_secs(5), ())
-                        .then(|_, actor: &mut Self, ctx: &mut Self::Context| {
-                            actor.client_state = Some(ClientState::Stopped);
-                            ctx.stop();
-                            fut::ok(())
-                        })
+                    ctx.spawn(
+                        fut::wrap_future(term_rx.compat())
+                            .then(|res, _, _| {
+                                debug!("Discord client thread terminated: {:?}", res);
+                                fut::ok(())
+                            })
+                            .timeout(Duration::from_secs(5), ())
+                            .then(|_, actor: &mut Self, ctx: &mut Self::Context| {
+                                actor.client_state = Some(ClientState::Stopped);
+                                ctx.stop();
+                                fut::ok(())
+                            }),
                     );
                 });
                 self.client_state = Some(ClientState::Stopping);
@@ -203,8 +205,10 @@ impl Handler<signal::Signal> for Discord {
     fn handle(&mut self, msg: signal::Signal, ctx: &mut Self::Context) {
         use self::signal::SignalType::*;
         match msg.0 {
-            Int | Term | Quit => { ctx.stop(); }
-            _ => { }
+            Int | Term | Quit => {
+                ctx.stop();
+            }
+            _ => {}
         }
     }
 }
@@ -220,7 +224,9 @@ impl Handler<DiscordEvent> for Discord {
             GuildCreate { guild } => self.on_guild_create(guild),
             GuildDelete { guild } => self.on_guild_delete(guild),
             GuildUpdate { guild } => self.on_guild_update(guild),
-            GuildMemberAddition { guild_id, member } => self.on_guild_member_addition(guild_id, member),
+            GuildMemberAddition { guild_id, member } => {
+                self.on_guild_member_addition(guild_id, member)
+            }
             GuildMemberRemoval { guild_id, user } => self.on_guild_member_removal(guild_id, user),
             GuildMemberUpdate { event } => self.on_guild_member_update(event),
             Message { msg } => self.on_message(ctx, msg).unwrap(),
@@ -232,21 +238,26 @@ impl Handler<DiscordEvent> for Discord {
 }
 
 impl Discord {
-    fn on_ready(&mut self, Ready { user, guilds, private_channels, .. }: Ready) {
+    fn on_ready(
+        &mut self,
+        Ready {
+            user,
+            guilds,
+            private_channels,
+            ..
+        }: Ready,
+    ) {
         self.current_user = Some(user);
-        self.guilds.extend(
-            guilds.into_iter().filter_map(|g| match g {
+        self.guilds
+            .extend(guilds.into_iter().filter_map(|g| match g {
                 GuildStatus::OnlinePartialGuild(g) => Some((g.id, g.name)),
                 GuildStatus::OnlineGuild(g) => Some((g.id, g.name)),
                 _ => None,
-            })
-        );
+            }));
         self.channels.extend(
-            private_channels.into_iter()
-            .filter_map(|(id, ch)| {
-                channel::Channel::from_discord(ch)
-                    .map(|ch| (id, ch))
-            })
+            private_channels
+                .into_iter()
+                .filter_map(|(id, ch)| channel::Channel::from_discord(ch).map(|ch| (id, ch))),
         );
     }
 
@@ -260,9 +271,12 @@ impl Discord {
             }
         }
         if !new_channels.is_empty() {
-            Bus::publish(self.bus_id, ChannelUpdated {
-                channels: new_channels,
-            });
+            Bus::publish(
+                self.bus_id,
+                ChannelUpdated {
+                    channels: new_channels,
+                },
+            );
         }
 
         for (id, member) in &guild.members {
@@ -294,9 +308,17 @@ impl Discord {
         }
     }
 
-    fn on_message(&mut self, ctx: &mut <Self as Actor>::Context, msg: SerenityMessage) -> Result<(), Error> {
-        if msg.kind != MessageType::Regular ||
-            self.current_user.as_ref().map(|u| u.id == msg.author.id).unwrap_or(false)
+    fn on_message(
+        &mut self,
+        ctx: &mut <Self as Actor>::Context,
+        msg: SerenityMessage,
+    ) -> Result<(), Error> {
+        if msg.kind != MessageType::Regular
+            || self
+                .current_user
+                .as_ref()
+                .map(|u| u.id == msg.author.id)
+                .unwrap_or(false)
         {
             return Ok(());
         }
@@ -304,19 +326,23 @@ impl Discord {
             ctx.notify(HandleMessage { message: msg });
         } else {
             ctx.spawn(
-                fut::wrap_future(self.worker.send(GetChannel { channel: msg.channel_id }))
-                .then(move |res, actor: &mut Self, ctx| match res.map_err(Error::from).and_then(|r| r) {
-                    Ok(ch) => {
-                        if actor.register_channel(ch).is_some() {
-                            ctx.notify(HandleMessage { message: msg });
+                fut::wrap_future(self.worker.send(GetChannel {
+                    channel: msg.channel_id,
+                }))
+                .then(move |res, actor: &mut Self, ctx| {
+                    match res.map_err(Error::from).and_then(|r| r) {
+                        Ok(ch) => {
+                            if actor.register_channel(ch).is_some() {
+                                ctx.notify(HandleMessage { message: msg });
+                            }
+                            fut::ok(())
                         }
-                        fut::ok(())
+                        Err(err) => {
+                            error!("{}", err);
+                            fut::err(())
+                        }
                     }
-                    Err(err) => {
-                        error!("{}", err);
-                        fut::err(())
-                    }
-                })
+                }),
             );
         }
         Ok(())
@@ -335,19 +361,24 @@ impl Handler<HandleMessage> for Discord {
         let msg = msg.message;
         let channel_id = match self.find_channel_by_id(msg.channel_id) {
             Some(ChannelRef::Guild(name, channel)) => {
-                let nickname = self.members.get(&(channel.guild_id, msg.author.id))
+                let nickname = self
+                    .members
+                    .get(&(channel.guild_id, msg.author.id))
                     .and_then(|m| m.nick.as_ref())
                     .unwrap_or(&msg.author.name);
                 let m = MessageCreated::builder()
                     .nickname(&nickname[..])
                     .channel(format!("#{}", name))
                     .content(msg.content)
-                    .build().unwrap();
+                    .build()
+                    .unwrap();
                 Bus::do_publish(self.bus_id, m);
                 return;
             }
             Some(ChannelRef::Private(ch)) => ch.id,
-            _ => { return; }
+            _ => {
+                return;
+            }
         };
         let response = self.handle_bot_command(msg);
         self.worker.do_send(SendMessage {
@@ -361,7 +392,9 @@ impl Handler<IrcReady> for Discord {
     type Result = ();
 
     fn handle(&mut self, _: IrcReady, _: &mut Self::Context) {
-        let channels = self.channels.values()
+        let channels = self
+            .channels
+            .values()
             .filter_map(|ch| ch.as_guild().map(|i| i.0.to_owned()))
             .collect();
         Bus::do_publish(self.bus_id, ChannelUpdated { channels });
@@ -377,7 +410,10 @@ impl Handler<MessageCreated> for Discord {
         }
         for channel in self.find_channels(&msg.channel[1..]) {
             let m = format!("<{}> {}", msg.nickname, msg.content);
-            self.worker.do_send(SendMessage { channel: channel.id, content: m });
+            self.worker.do_send(SendMessage {
+                channel: channel.id,
+                content: m,
+            });
         }
     }
 }

@@ -2,8 +2,8 @@
 #![deny(proc_macro_derive_resolution_fallback)]
 
 mod channel;
+mod guild;
 
-use std::collections::HashMap;
 use std::sync::{mpsc, Arc};
 use std::thread;
 
@@ -24,7 +24,7 @@ use serenity::{
     prelude::*,
 };
 
-use crate::channel::{Channel, ChannelList};
+use crate::{channel::{Channel, ChannelList}, guild::{GuildMap, GuildData, UserData, author_name}};
 
 fn main() -> Fallible<()> {
     tracing::init()?;
@@ -78,8 +78,6 @@ fn main() -> Fallible<()> {
     Ok(())
 }
 
-type GuildMap = HashMap<GuildId, Guild>;
-
 struct Handler {
     guilds: RwLock<GuildMap>,
     channels: Arc<RwLock<ChannelList>>,
@@ -97,9 +95,9 @@ impl Handler {
         }
     }
 
-    fn insert_guild(&self, guild: Guild) -> Option<Guild> {
+    fn insert_guild(&self, guild: Guild) -> Option<GuildData> {
         let mut lock = self.guilds.write();
-        lock.insert(guild.id, guild)
+        lock.insert(guild.id, guild.into())
     }
 
     fn register_guild_channel<'a>(&'a self, channel: &GuildChannel) -> bool {
@@ -111,20 +109,6 @@ impl Handler {
             .get_or_insert_with(channel.id, || Channel::Guild(channel.clone()));
         true
     }
-}
-
-fn author_nickname<'a>(g: &'a GuildMap, message: &Message) -> Option<&'a str> {
-    let guild = g.get(&message.guild_id?)?;
-    guild
-        .members
-        .get(&message.author.id)?
-        .nick
-        .as_ref()
-        .map(|s| &s[..])
-}
-
-fn author_name<'a>(g: &'a GuildMap, message: &'a Message) -> &'a str {
-    author_nickname(g, message).unwrap_or_else(|| &message.author.name[..])
 }
 
 impl EventHandler for Handler {
@@ -143,7 +127,7 @@ impl EventHandler for Handler {
         self.guilds
             .write()
             .extend(guilds.into_iter().filter_map(|g| match g {
-                OnlineGuild(g) => Some((g.id, g)),
+                OnlineGuild(g) => Some((g.id, g.into())),
                 _ => None,
             }));
         self.channels.write().extend(
@@ -167,7 +151,7 @@ impl EventHandler for Handler {
     fn guild_member_addition(&self, _ctx: Context, guild_id: GuildId, new_member: Member) {
         if let Some(g) = self.guilds.write().get_mut(&guild_id) {
             let id = new_member.user.read().id;
-            g.members.insert(id, new_member);
+            g.members.insert(id, new_member.into());
         }
     }
 
@@ -179,24 +163,20 @@ impl EventHandler for Handler {
 
     fn guild_member_update(&self, _ctx: Context, new: model::event::GuildMemberUpdateEvent) {
         let guild_id = new.guild_id;
-        let user_id = new.user.id;
+        let new = UserData::from(new);
         if let Some(m) = self
             .guilds
             .write()
             .get_mut(&guild_id)
-            .and_then(|g| g.members.get_mut(&user_id))
+            .and_then(|g| g.members.get_mut(&new.id))
         {
-            let old_name = m.nick.clone().unwrap_or_else(|| m.user.read().name.clone());
-            let new_name = new.nick.as_ref().unwrap_or_else(|| &new.user.name);
-            if &old_name != new_name {
+            if m.name != new.name {
                 let _ = self.event_tx.send(Event::UserRenamed {
-                    old: old_name,
-                    new: new_name.clone(),
+                    old: m.name.clone(),
+                    new: new.name.clone(),
                 });
             }
-            m.nick = new.nick;
-            m.roles = new.roles;
-            m.user = Arc::new(RwLock::new(new.user));
+            *m = new;
         }
     }
 

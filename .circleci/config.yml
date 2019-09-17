@@ -3,18 +3,31 @@ version: 2
 jobs:
 
   test:
-    docker:
-    - image: rustlang/rust:nightly-slim
+    machine:
+      image: ubuntu-1604:201903-01
       environment:
         CARGO_INCREMENTAL: 0
     working_directory: ~/work
     steps:
     - run:
-        name: Install Utilities
+        name: Install Prerequisites
         command: |
-          apt-get -y update
-          apt-get -y install cmake curl libssl-dev pkg-config zlib1g-dev
-          RUSTFLAGS="--cfg procmacro2_semver_exempt" cargo install cargo-tarpaulin
+          sudo apt-get -y update
+          sudo apt-get -y install cmake curl libssl-dev ninja-build pkg-config zlib1g-dev
+    - run:
+        name: Install Rust
+        command: |
+          curl -LO https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init
+          chmod +x rustup-init
+          ./rustup-init -y --no-modify-path
+          rm rustup-init
+          echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
+    - run:
+        # https://discuss.circleci.com/t/cargo-tarpaulin-fails/30215/3
+        name: Install Tarpaulin
+        command: cargo install cargo-tarpaulin
+        environment:
+          RUSTFLAGS: --cfg procmacro2_semver_exempt
     - checkout
     - restore_cache:
         keys:

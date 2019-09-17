@@ -1,0 +1,10 @@
+[package]
+name = "rendezvous-server"
+version = "0.3.0"
+authors = ["Eunchong Yu <kroisse@gmail.com>"]
+edition = "2018"
+license = "AGPL-3.0"
+publish = false
+
+[dependencies]
+rendezvous-common = { path = "../common" }

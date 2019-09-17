@@ -1,0 +1,231 @@
+#![deny(rust_2018_idioms)]
+#![deny(proc_macro_derive_resolution_fallback)]
+
+mod channel;
+
+use std::collections::HashMap;
+use std::sync::{mpsc, Arc};
+use std::thread;
+
+use rendezvous_common::{
+    data::*,
+    ipc,
+    parking_lot::RwLock,
+    tracing::{self, debug, info, info_span, warn},
+    Fallible,
+};
+use serenity::{
+    model::{
+        self,
+        channel::{ChannelType, GuildChannel, Message, MessageType},
+        guild::{Guild, Member},
+        id::GuildId,
+    },
+    prelude::*,
+};
+
+use crate::channel::{Channel, ChannelList};
+
+fn main() -> Fallible<()> {
+    tracing::init()?;
+
+    let token = std::env::var("RENDEZVOUS_DISCORD_BOT_TOKEN")?;
+
+    let (msg_tx, msg_rx) = mpsc::channel();
+    let (event_tx, event_rx) = mpsc::sync_channel(8);
+
+    let handler = Handler::new(event_tx);
+    let channels = Arc::clone(&handler.channels);
+    let mut client = Client::new(&token, handler)?;
+    ipc::spawn_socket(msg_tx, event_rx)?;
+
+    let http = Arc::clone(&client.cache_and_http.http);
+    thread::spawn(move || {
+        for m in msg_rx {
+            match m {
+                Event::MessageCreated {
+                    nickname,
+                    channel,
+                    content,
+                    ..
+                } => {
+                    if !channel.starts_with("#") {
+                        continue;
+                    }
+                    let channels = channels.read();
+                    debug!(
+                        "channels: {:?}",
+                        channels.iter().map(|ch| ch.name()).collect::<Vec<_>>()
+                    );
+                    if let Some(ch) = channels.get_by_name(&channel[1..]) {
+                        debug!("{:?}", ch);
+                        ch.id()
+                            .send_message(&*http, |m| {
+                                m.content(format!("<{}> {}", nickname, content))
+                            })
+                            .unwrap();
+                    } else {
+                        warn!("unknown channel: {:?}", channel);
+                    }
+                }
+                _ => {}
+            }
+        }
+    });
+
+    client.start_autosharded()?;
+
+    Ok(())
+}
+
+type GuildMap = HashMap<GuildId, Guild>;
+
+struct Handler {
+    guilds: RwLock<GuildMap>,
+    channels: Arc<RwLock<ChannelList>>,
+    current_user: RwLock<Option<model::user::CurrentUser>>,
+    event_tx: mpsc::SyncSender<Event>,
+}
+
+impl Handler {
+    fn new(event_tx: mpsc::SyncSender<Event>) -> Self {
+        Handler {
+            guilds: Default::default(),
+            channels: Default::default(),
+            current_user: Default::default(),
+            event_tx,
+        }
+    }
+
+    fn insert_guild(&self, guild: Guild) -> Option<Guild> {
+        let mut lock = self.guilds.write();
+        lock.insert(guild.id, guild)
+    }
+
+    fn register_guild_channel<'a>(&'a self, channel: &GuildChannel) -> bool {
+        if channel.kind != ChannelType::Text {
+            return false;
+        }
+        self.channels
+            .write()
+            .get_or_insert_with(channel.id, || Channel::Guild(channel.clone()));
+        true
+    }
+}
+
+fn author_nickname<'a>(g: &'a GuildMap, message: &Message) -> Option<&'a str> {
+    let guild = g.get(&message.guild_id?)?;
+    guild
+        .members
+        .get(&message.author.id)?
+        .nick
+        .as_ref()
+        .map(|s| &s[..])
+}
+
+fn author_name<'a>(g: &'a GuildMap, message: &'a Message) -> &'a str {
+    author_nickname(g, message).unwrap_or_else(|| &message.author.name[..])
+}
+
+impl EventHandler for Handler {
+    fn ready(
+        &self,
+        _ctx: Context,
+        model::gateway::Ready {
+            user,
+            guilds,
+            private_channels,
+            ..
+        }: model::gateway::Ready,
+    ) {
+        use model::guild::GuildStatus::*;
+        *self.current_user.write() = Some(user);
+        self.guilds
+            .write()
+            .extend(guilds.into_iter().filter_map(|g| match g {
+                OnlineGuild(g) => Some((g.id, g)),
+                _ => None,
+            }));
+        self.channels.write().extend(
+            private_channels
+                .into_iter()
+                .filter_map(|(_, ch)| Channel::from_discord(ch)),
+        );
+    }
+
+    fn guild_create(&self, _ctx: Context, guild: Guild) {
+        let mut new_channels = vec![];
+        for channel in guild.channels.values() {
+            let chan = channel.read();
+            if self.register_guild_channel(&chan) {
+                new_channels.push(chan.name.clone());
+            }
+        }
+        self.insert_guild(guild);
+    }
+
+    fn guild_member_addition(&self, _ctx: Context, guild_id: GuildId, new_member: Member) {
+        if let Some(g) = self.guilds.write().get_mut(&guild_id) {
+            let id = new_member.user.read().id;
+            g.members.insert(id, new_member);
+        }
+    }
+
+    fn guild_member_removal(&self, _ctx: Context, guild_id: GuildId, user: model::user::User) {
+        if let Some(g) = self.guilds.write().get_mut(&guild_id) {
+            g.members.remove(&user.id);
+        }
+    }
+
+    fn guild_member_update(&self, _ctx: Context, new: model::event::GuildMemberUpdateEvent) {
+        let guild_id = new.guild_id;
+        let user_id = new.user.id;
+        if let Some(m) = self
+            .guilds
+            .write()
+            .get_mut(&guild_id)
+            .and_then(|g| g.members.get_mut(&user_id))
+        {
+            let old_name = m.nick.clone().unwrap_or_else(|| m.user.read().name.clone());
+            let new_name = new.nick.as_ref().unwrap_or_else(|| &new.user.name);
+            if &old_name != new_name {
+                let _ = self.event_tx.send(Event::UserRenamed {
+                    old: old_name,
+                    new: new_name.clone(),
+                });
+            }
+            m.nick = new.nick;
+            m.roles = new.roles;
+            m.user = Arc::new(RwLock::new(new.user));
+        }
+    }
+
+    fn message(&self, _ctx: Context, new_message: Message) {
+        let span = info_span!("message");
+        let _enter = span.enter();
+        info!("entered");
+        if new_message.kind != MessageType::Regular
+            || self
+                .current_user
+                .read()
+                .as_ref()
+                .map(|u| u.id == new_message.author.id)
+                .unwrap_or(false)
+        {
+            return;
+        }
+
+        if let Some(ch) = self.channels.read().get_by_id(new_message.channel_id) {
+            self.event_tx
+                .send(Event::MessageCreated {
+                    nickname: author_name(&self.guilds.read(), &new_message).to_owned(),
+                    channel: format!("#{}", ch.name()),
+                    content: new_message.content,
+                    origin: None,
+                })
+                .unwrap();
+        } else {
+            info!("channel not found: {}", new_message.channel_id);
+        }
+    }
+}

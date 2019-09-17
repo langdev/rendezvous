@@ -22,20 +22,25 @@ jobs:
           ./rustup-init -y --no-modify-path
           rm rustup-init
           echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
-    - run:
-        # https://discuss.circleci.com/t/cargo-tarpaulin-fails/30215/3
-        name: Install Tarpaulin
-        command: cargo install cargo-tarpaulin
-        environment:
-          RUSTFLAGS: --cfg procmacro2_semver_exempt
     - checkout
     - restore_cache:
         keys:
         - rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ checksum "Cargo.lock" }}
         - rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
         - rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
-    - run: cargo build --tests
-    - run: cargo test --verbose
+    - run:
+        # https://discuss.circleci.com/t/cargo-tarpaulin-fails/30215/3
+        name: Install Tarpaulin
+        command: cargo tarpaulin --version || cargo install --force cargo-tarpaulin
+        environment:
+          RUSTFLAGS: --cfg procmacro2_semver_exempt
+    - run:
+        name: Vendoring dependencies
+        command: |
+          mkdir -p .cargo && cp deploy/cargo.config .cargo/config
+          cargo vendor
+    - run: cargo build --all --tests
+    - run: cargo test --all --verbose
     - run:
         name: Collect Coverage Report
         command: |
@@ -48,8 +53,8 @@ jobs:
     - save_cache:
         key: rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ checksum "Cargo.lock" }}
         paths:
-        - "/usr/local/cargo/registry"
-        - "target/debug/deps"
+        - "vendor"
+        - "~/.cargo/bin/cargo-tarpaulin"
     - run:
         name: Upload Coverage Report
         command: bash <(curl -s https://codecov.io/bash)

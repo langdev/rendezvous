@@ -15,6 +15,7 @@ use rendezvous_common::{
     Fallible,
 };
 use serenity::{
+    http::Http,
     model::{
         self,
         channel::{ChannelType, GuildChannel, Message, MessageType},
@@ -24,7 +25,10 @@ use serenity::{
     prelude::*,
 };
 
-use crate::{channel::{Channel, ChannelList}, guild::{GuildMap, GuildData, UserData, author_name}};
+use crate::{
+    channel::{Channel, ChannelList},
+    guild::{author_name, GuildData, GuildMap, UserData},
+};
 
 fn main() -> Fallible<()> {
     tracing::init()?;
@@ -42,39 +46,41 @@ fn main() -> Fallible<()> {
     let http = Arc::clone(&client.cache_and_http.http);
     thread::spawn(move || {
         for m in msg_rx {
-            match m {
-                Event::MessageCreated {
-                    nickname,
-                    channel,
-                    content,
-                    ..
-                } => {
-                    if !channel.starts_with("#") {
-                        continue;
-                    }
-                    let channels = channels.read();
-                    debug!(
-                        "channels: {:?}",
-                        channels.iter().map(|ch| ch.name()).collect::<Vec<_>>()
-                    );
-                    if let Some(ch) = channels.get_by_name(&channel[1..]) {
-                        debug!("{:?}", ch);
-                        ch.id()
-                            .send_message(&*http, |m| {
-                                m.content(format!("<{}> {}", nickname, content))
-                            })
-                            .unwrap();
-                    } else {
-                        warn!("unknown channel: {:?}", channel);
-                    }
-                }
-                _ => {}
-            }
+            handle_ipc_event(&http, &channels, m).unwrap();
         }
     });
 
     client.start_autosharded()?;
 
+    Ok(())
+}
+
+fn handle_ipc_event(http: &Http, channels: &RwLock<ChannelList>, e: Event) -> Fallible<()> {
+    match e {
+        Event::MessageCreated {
+            nickname,
+            channel,
+            content,
+            ..
+        } => {
+            if !channel.starts_with("#") {
+                return Ok(());
+            }
+            let channels = channels.read();
+            debug!(
+                "channels: {:?}",
+                channels.iter().map(|ch| ch.name()).collect::<Vec<_>>()
+            );
+            if let Some(ch) = channels.get_by_name(&channel[1..]) {
+                debug!("{:?}", ch);
+                ch.id()
+                    .send_message(http, |m| m.content(format!("<{}> {}", nickname, content)))?;
+            } else {
+                warn!("unknown channel: {:?}", channel);
+            }
+        }
+        _ => {}
+    }
     Ok(())
 }
 

@@ -38,15 +38,13 @@ jobs:
         name: Vendoring dependencies
         command: |
           mkdir -p .cargo && cp deploy/cargo.config .cargo/config
-          cargo vendor
-    - run: cargo build --all --tests
-    - run: cargo test --all --verbose
+          if [ ! -d vendor ]; then cargo vendor; fi
     - run:
-        name: Collect Coverage Report
+        name: Test and collect code coverage
         command: |
-          cargo tarpaulin --verbose \
+          cargo tarpaulin --all --verbose \
             --ignore-tests --forward \
-            --out Xml --ciserver circle-ci || echo "Coverage has dismissed"
+            --out Xml --ciserver circle-ci
     - run:
         command: ls -lh target/debug/
         when: always

@@ -44,6 +44,7 @@ jobs:
         command: |
           cargo tarpaulin --all --verbose \
             --ignore-tests --forward \
+            --exclude-files vendor/**/* \
             --out Xml --ciserver circle-ci
     - run:
         command: ls -lh target/debug/

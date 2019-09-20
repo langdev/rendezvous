@@ -53,34 +53,16 @@ pub fn author_name<'a>(g: &'a GuildMap, message: &'a Message) -> &'a str {
 
 #[cfg(test)]
 mod test {
-    use serde_json::json;
+    use serenity::utils::CustomMessage;
 
     use super::*;
 
     #[test]
     fn author_nickname_empty_guild_map() {
         let guild_map = GuildMap::new();
-        let message = serde_json::from_value::<Message>(json!({
-            "id": 42,
-            "attachments": [],
-            "author": {
-                "id": 197,
-                "discriminator": "1234",
-                "username": "James"
-            },
-            "channel_id": 65234,
-            "content": "Hello, world",
-            "embeds": [],
-            "guild_id": 100200,
-            "type": 0,
-            "mention_everyone": false,
-            "mention_roles": [],
-            "mentions": [],
-            "pinned": false,
-            "timestamp": "2019-09-18T12:34:56Z",
-            "tts": false
-        }))
-        .unwrap();
+        let mut message = CustomMessage::new();
+        message.guild_id(GuildId(100200));
+        let message = message.build();
         assert!(author_nickname(&guild_map, &message).is_none());
     }
 }

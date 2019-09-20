@@ -20,6 +20,3 @@ features = [
     "rustls_backend",
     "utils",
 ]
-
-[dev-dependencies]
-serde_json = "1.0.40"

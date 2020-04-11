@@ -1,6 +1,12 @@
 version: 2.1
 executors:
   default:
+    docker:
+    - image: circleci/rust
+    environment:
+      CARGO_INCREMENTAL: 0
+    working_directory: ~/work
+  coverage:
     machine:
       image: ubuntu-1604:201903-01
     environment:
@@ -31,7 +37,6 @@ commands:
         command: |
           sudo apt-get -y update
           sudo apt-get -y install cmake curl libssl-dev ninja-build pkg-config zlib1g-dev
-    - install-rust
     - checkout-and-configure
     - attach_workspace:
         at: .
@@ -40,7 +45,6 @@ jobs:
   vendor:
     executor: default
     steps:
-    - install-rust
     - checkout-and-configure
     - restore_cache:
         keys:
@@ -83,10 +87,12 @@ jobs:
           cp target/release/rendezvous-* /tmp/executables/
     - store_artifacts:
         path: /tmp/executables
+        destination: bin
 
   collect-coverage:
-    executor: default
+    executor: coverage
     steps:
+    - install-rust
     - prepare
     - restore_cache:
         keys:

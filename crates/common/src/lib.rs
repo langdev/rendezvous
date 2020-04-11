@@ -5,7 +5,7 @@ pub mod data;
 pub mod ipc;
 pub mod tracing;
 
-pub use failure::{self, Fallible};
+pub use anyhow;
 pub use nng;
 pub use parking_lot;
 pub use serde;

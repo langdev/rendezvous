@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use rendezvous_common::{
+    anyhow,
     data::*,
     ipc,
     nng::{
@@ -12,10 +13,9 @@ use rendezvous_common::{
     parking_lot::RwLock,
     serde_cbor,
     tracing::{self, debug, debug_span, info, instrument, warn},
-    Fallible,
 };
 
-fn main() -> Fallible<()> {
+fn main() -> anyhow::Result<()> {
     tracing::init()?;
 
     info!("Initializing...");

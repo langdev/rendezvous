@@ -8,11 +8,11 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 
 use rendezvous_common::{
+    anyhow,
     data::*,
     ipc,
     parking_lot::RwLock,
     tracing::{self, debug, info, info_span, warn},
-    Fallible,
 };
 use serenity::{
     http::Http,
@@ -30,7 +30,7 @@ use crate::{
     guild::{author_name, GuildData, GuildMap, UserData},
 };
 
-fn main() -> Fallible<()> {
+fn main() -> anyhow::Result<()> {
     tracing::init()?;
 
     let token = std::env::var("RENDEZVOUS_DISCORD_BOT_TOKEN")?;
@@ -55,7 +55,7 @@ fn main() -> Fallible<()> {
     Ok(())
 }
 
-fn handle_ipc_event(http: &Http, channels: &RwLock<ChannelList>, e: Event) -> Fallible<()> {
+fn handle_ipc_event(http: &Http, channels: &RwLock<ChannelList>, e: Event) -> anyhow::Result<()> {
     match e {
         Event::MessageCreated {
             nickname,

@@ -1,13 +1,13 @@
-version: 2
-
-jobs:
-
-  test:
+version: 2.1
+executors:
+  default:
     machine:
       image: ubuntu-1604:201903-01
-      environment:
-        CARGO_INCREMENTAL: 0
+    environment:
+      CARGO_INCREMENTAL: 0
     working_directory: ~/work
+commands:
+  prepare:
     steps:
     - run:
         name: Install Prerequisites
@@ -22,6 +22,37 @@ jobs:
           ./rustup-init -y --no-modify-path
           rm rustup-init
           echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
+
+jobs:
+  test:
+    executor: default
+    steps:
+    - prepare
+    - checkout
+    - restore_cache:
+        keys:
+        - rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ checksum "Cargo.lock" }}
+        - rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
+        - rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
+    - run:
+        name: Vendoring dependencies
+        command: |
+          mkdir -p .cargo && cp deploy/cargo.config .cargo/config
+          if [ ! -d vendor ]; then cargo vendor; fi
+    - run:
+        name: Test
+        command: |
+          cargo test --all --verbose
+    - save_cache:
+        key: rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ checksum "Cargo.lock" }}
+        paths:
+        - "vendor"
+        - "~/.cargo/bin/cargo-tarpaulin"
+
+  collect-coverage:
+    executor: default
+    steps:
+    - prepare
     - checkout
     - restore_cache:
         keys:
@@ -66,6 +97,9 @@ workflows:
   test:
     jobs:
     - test
+    - collect-coverage:
+        requires:
+        - test
 
   weekly:
     triggers:

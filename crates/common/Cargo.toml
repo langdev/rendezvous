@@ -11,6 +11,9 @@ anyhow = "1.0"
 nng = "1.0.0-rc.2"
 parking_lot = "0.9"
 serde = { version = "1.0", features = ["derive"] }
-serde_cbor = "0.10"
-tracing = "0.1.8"
-tracing-subscriber = "0.1.1"
+serde_cbor = "0.11"
+tracing = "0.1"
+tracing-subscriber = "0.2"
+
+[dev-dependencies]
+scopeguard = "1.1"

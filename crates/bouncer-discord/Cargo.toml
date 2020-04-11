@@ -10,7 +10,7 @@ publish = false
 rendezvous-common = { path = "../common" }
 
 [dependencies.serenity]
-version = "0.7"
+version = "0.8"
 default-features = false
 features = [
     "client",

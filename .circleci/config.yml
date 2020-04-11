@@ -27,7 +27,7 @@ commands:
     steps:
     - checkout
     - run:
-        name: Vendoring dependencies
+        name: Load Cargo configuration
         command: |
           mkdir -p .cargo && cp deploy/cargo.config .cargo/config
   prepare:
@@ -54,7 +54,7 @@ jobs:
     - run:
         name: Vendoring dependencies
         command: |
-          if [ ! -d vendor ]; then cargo vendor; fi
+          cargo vendor
     - save_cache:
         key: rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ checksum "Cargo.lock" }}
         paths:

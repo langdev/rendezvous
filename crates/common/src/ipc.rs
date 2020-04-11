@@ -45,7 +45,7 @@ pub fn spawn_socket(
         info!("Reconnecting...");
     }
 
-    let mut msg = Message::new()?;
+    let mut msg = Message::new();
 
     let s = socket.clone();
     thread::spawn(move || loop {

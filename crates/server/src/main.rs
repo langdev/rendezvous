@@ -57,9 +57,9 @@ fn main() -> anyhow::Result<()> {
 
 #[instrument]
 fn send_message(socket: &Socket, pipe: Pipe, content: &[u8]) -> Result<(), nng::Error> {
-    let mut m = Message::new()?;
+    let mut m = Message::new();
     m.set_pipe(pipe);
-    m.push_back(content)?;
+    m.push_back(content);
     socket.send(m)?;
     Ok(())
 }

@@ -69,6 +69,21 @@ jobs:
         command: |
           cargo test --all --verbose
 
+  build:
+    executor: default
+    steps:
+    - prepare
+    - run:
+        name: Build
+        command: |
+          cargo build --all --release --verbose
+    - run:
+        command: |
+          mkdir -p /tmp/executables
+          cp target/release/rendezvous-* /tmp/executables/
+    - store_artifacts:
+        path: /tmp/executables
+
   collect-coverage:
     executor: default
     steps:
@@ -109,6 +124,9 @@ workflows:
     jobs:
     - vendor
     - test:
+        requires:
+        - vendor
+    - build:
         requires:
         - vendor
     - collect-coverage:

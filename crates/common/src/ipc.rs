@@ -137,7 +137,7 @@ mod test {
                     } => {
                         let mut m = Message::new();
                         m.set_pipe(pipe);
-                        serde_cbor::to_writer(&mut m, &"Hello client").unwrap();
+                        m.push_back(b"\x6cHello client");
                         srv_sock.send(m).unwrap();
                     }
                     Command::Close => {
@@ -170,8 +170,7 @@ mod test {
             let srv_sock = socket_pair1_new().unwrap();
             srv_sock.listen(addr).unwrap();
             let msg = srv_sock.recv().unwrap();
-            let s: String = serde_cbor::from_slice(msg.as_slice()).unwrap();
-            tx.send(s).unwrap();
+            tx.send(msg).unwrap();
             srv_sock.close();
         });
 
@@ -180,7 +179,7 @@ mod test {
         thread::spawn(move || send_to_socket(client_sock, event_rx));
         event_tx.send("Hello server".to_owned()).unwrap();
 
-        let s = rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(s, "Hello server");
+        let m = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(m.as_slice(), b"\x6cHello server");
     }
 }

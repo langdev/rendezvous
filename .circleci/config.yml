@@ -7,13 +7,8 @@ executors:
       CARGO_INCREMENTAL: 0
     working_directory: ~/work
 commands:
-  prepare:
+  install-rust:
     steps:
-    - run:
-        name: Install Prerequisites
-        command: |
-          sudo apt-get -y update
-          sudo apt-get -y install cmake curl libssl-dev ninja-build pkg-config zlib1g-dev
     - run:
         name: Install Rust
         command: |
@@ -22,13 +17,31 @@ commands:
           ./rustup-init -y --no-modify-path
           rm rustup-init
           echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
+  checkout-and-configure:
+    steps:
+    - checkout
+    - run:
+        name: Vendoring dependencies
+        command: |
+          mkdir -p .cargo && cp deploy/cargo.config .cargo/config
+  prepare:
+    steps:
+    - run:
+        name: Install Prerequisites
+        command: |
+          sudo apt-get -y update
+          sudo apt-get -y install cmake curl libssl-dev ninja-build pkg-config zlib1g-dev
+    - install-rust
+    - checkout-and-configure
+    - attach_workspace:
+        at: .
 
 jobs:
-  test:
+  vendor:
     executor: default
     steps:
-    - prepare
-    - checkout
+    - install-rust
+    - checkout-and-configure
     - restore_cache:
         keys:
         - rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ checksum "Cargo.lock" }}
@@ -37,39 +50,42 @@ jobs:
     - run:
         name: Vendoring dependencies
         command: |
-          mkdir -p .cargo && cp deploy/cargo.config .cargo/config
           if [ ! -d vendor ]; then cargo vendor; fi
-    - run:
-        name: Test
-        command: |
-          cargo test --all --verbose
     - save_cache:
         key: rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ checksum "Cargo.lock" }}
         paths:
         - "vendor"
-        - "~/.cargo/bin/cargo-tarpaulin"
+    - persist_to_workspace:
+        root: .
+        paths:
+        - "vendor"
+
+  test:
+    executor: default
+    steps:
+    - prepare
+    - run:
+        name: Test
+        command: |
+          cargo test --all --verbose
 
   collect-coverage:
     executor: default
     steps:
     - prepare
-    - checkout
     - restore_cache:
         keys:
-        - rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ checksum "Cargo.lock" }}
-        - rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-
-        - rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-
+        - rendezvous-tarpaulin-{{ .Environment.CIRCLECI_CACHE_VERSION }}
     - run:
         # https://discuss.circleci.com/t/cargo-tarpaulin-fails/30215/3
         name: Install Tarpaulin
         command: cargo tarpaulin --version || cargo install --force cargo-tarpaulin
         environment:
           RUSTFLAGS: --cfg procmacro2_semver_exempt
-    - run:
-        name: Vendoring dependencies
-        command: |
-          mkdir -p .cargo && cp deploy/cargo.config .cargo/config
-          if [ ! -d vendor ]; then cargo vendor; fi
+    - save_cache:
+        key: rendezvous-tarpaulin-{{ .Environment.CIRCLECI_CACHE_VERSION }}
+        paths:
+        - "~/.cargo/bin/cargo-tarpaulin"
     - run:
         name: Test and collect code coverage
         command: |
@@ -80,11 +96,6 @@ jobs:
     - run:
         command: ls -lh target/debug/
         when: always
-    - save_cache:
-        key: rendezvous-{{ .Environment.CIRCLECI_CACHE_VERSION }}-{{ .Branch }}-{{ checksum "Cargo.lock" }}
-        paths:
-        - "vendor"
-        - "~/.cargo/bin/cargo-tarpaulin"
     - run:
         name: Upload Coverage Report
         command: bash <(curl -s https://codecov.io/bash)
@@ -96,7 +107,10 @@ workflows:
 
   test:
     jobs:
-    - test
+    - vendor
+    - test:
+        requires:
+        - vendor
     - collect-coverage:
         requires:
         - test
@@ -110,4 +124,7 @@ workflows:
             only:
             - master
     jobs:
-    - test
+    - vendor
+    - test:
+        requires:
+        - vendor

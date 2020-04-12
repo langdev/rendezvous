@@ -2,6 +2,7 @@
 #![deny(proc_macro_derive_resolution_fallback)]
 
 pub mod data;
+pub mod discovery;
 pub mod ipc;
 pub mod tracing;
 

@@ -1,3 +1,4 @@
+mod discovery;
 mod util;
 
 use std::collections::HashSet;

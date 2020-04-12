@@ -41,18 +41,35 @@ fn main() -> anyhow::Result<()> {
 
         if let Ok(event) = serde_cbor::from_slice::<Event>(msg.as_slice()) {
             debug!("Event: {:#?}", event);
-            for b in bouncers.read().iter().copied() {
-                if Some(b) == msg.pipe() {
-                    continue;
-                }
-                if let Err(e) = send_message(&socket, b, msg.as_slice()) {
-                    warn!("{}", e);
-                }
-            }
+            process_message(&socket, &bouncers, &mut msg);
         }
     }
 
     Ok(())
+}
+
+fn process_message(socket: &Socket, bouncers: &RwLock<HashSet<Pipe>>, msg: &mut Message) {
+    let mut broken_pipes = vec![];
+    let sender = msg.pipe();
+    for b in bouncers
+        .read()
+        .iter()
+        .copied()
+        .filter(|&b| sender != Some(b))
+    {
+        match send_message(&socket, b, msg.as_slice()) {
+            Ok(()) => {}
+            Err(nng::Error::Closed) => {
+                broken_pipes.push(b);
+            }
+            Err(e) => {
+                warn!("{}", e);
+            }
+        }
+    }
+    if !broken_pipes.is_empty() {
+        bouncers.write().retain(|b| !broken_pipes.contains(b));
+    }
 }
 
 #[instrument]

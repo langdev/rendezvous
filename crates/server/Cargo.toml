@@ -7,4 +7,10 @@ license = "AGPL-3.0"
 publish = false
 
 [dependencies]
+futures = "0.3"
+pin-project = "0.4"
 rendezvous-common = { path = "../common" }
+
+[dependencies.tokio]
+version = "0.2"
+features = ["macros", "rt-core", "stream", "sync"]

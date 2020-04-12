@@ -1,5 +1,9 @@
+mod util;
+
 use std::collections::HashSet;
 use std::sync::Arc;
+
+use futures::prelude::*;
 
 use rendezvous_common::{
     anyhow,
@@ -15,7 +19,8 @@ use rendezvous_common::{
     tracing::{self, debug, debug_span, info, instrument, warn},
 };
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     tracing::init()?;
 
     info!("Initializing...");
@@ -29,14 +34,13 @@ fn main() -> anyhow::Result<()> {
     socket.pipe_notify(move |pipe, event| handle_pipe_events(&mut b.write(), pipe, event))?;
 
     let address = ipc::address();
-    socket.listen(&address)?;
+    let mut srv = util::serve(&socket, &address).await?;
     info!("Listening...");
 
     let span = debug_span!("main loop");
     let _enter = span.enter();
 
-    loop {
-        let mut msg = socket.recv()?;
+    while let Some(mut msg) = srv.try_next().await? {
         debug!("pipe: {:?}", msg.pipe());
 
         if let Ok(event) = serde_cbor::from_slice::<Event>(msg.as_slice()) {

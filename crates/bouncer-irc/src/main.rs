@@ -10,7 +10,7 @@ use irc::client::prelude::*;
 use rendezvous_common::{
     anyhow,
     data::*,
-    ipc,
+    discovery, ipc,
     tracing::{self, info},
 };
 
@@ -18,7 +18,17 @@ fn main() -> anyhow::Result<()> {
     tracing::init()?;
     let (event_tx, event_rx) = mpsc::channel();
     let (msg_tx, msg_rx) = mpsc::channel();
-    ipc::spawn_socket(msg_tx, event_rx)?;
+    let ipc_address = "ipc:///var/tmp/rendezvous.bnc.compat.irc.pipe".to_owned();
+    ipc::spawn_socket(&ipc_address, msg_tx, event_rx)?;
+    thread::spawn(move || {
+        discovery::register(
+            &discovery::address(),
+            discovery::ServiceInfo {
+                name: "rdv.bnc.compat".to_owned(),
+                address: ipc_address,
+            },
+        )
+    });
     spawn(event_tx, msg_rx).compat()?;
     Ok(())
 }

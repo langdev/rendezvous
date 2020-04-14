@@ -1,6 +1,7 @@
 use std::collections::HashMap;
-use std::sync::mpsc;
 use std::time::Duration;
+
+use futures::channel::mpsc;
 
 use rendezvous_common::{
     discovery::ServiceInfo,
@@ -15,14 +16,15 @@ use rendezvous_common::{
 
 pub type ServiceMap = HashMap<String, Vec<String>>;
 
-pub fn start(address: &str, tx: mpsc::Sender<ServiceMap>) -> nng::Result<()> {
+pub fn start(tx: mpsc::UnboundedSender<ServiceMap>) -> nng::Result<()> {
+    let address = rendezvous_common::discovery::address();
     let socket = Socket::new(Protocol::Surveyor0)?;
     socket.set_opt::<SurveyTime>(Some(Duration::from_secs(5)))?;
-    socket.listen(address)?;
+    socket.listen(&address)?;
     start_loop(&socket, tx)
 }
 
-fn start_loop(socket: &Socket, tx: mpsc::Sender<ServiceMap>) -> nng::Result<()> {
+fn start_loop(socket: &Socket, tx: mpsc::UnboundedSender<ServiceMap>) -> nng::Result<()> {
     loop {
         let msg = Message::new();
         socket.send(msg)?;
@@ -51,7 +53,7 @@ fn start_loop(socket: &Socket, tx: mpsc::Sender<ServiceMap>) -> nng::Result<()> 
         }
         info!("survey done");
         if !services.is_empty() {
-            if let Err(_) = tx.send(services) {
+            if let Err(_) = tx.unbounded_send(services) {
                 break;
             }
         }
@@ -64,14 +66,16 @@ fn start_loop(socket: &Socket, tx: mpsc::Sender<ServiceMap>) -> nng::Result<()> 
 mod test {
     use std::thread;
 
-    use rendezvous_common::{anyhow, tracing};
+    use async_std::prelude::*;
+
+    use rendezvous_common::anyhow;
 
     use super::*;
 
-    #[test]
-    fn start_basic() -> anyhow::Result<()> {
+    #[async_std::test]
+    async fn start_basic() -> anyhow::Result<()> {
         let address = "inproc://start_basic";
-        let (tx, rx) = mpsc::channel();
+        let (tx, mut rx) = mpsc::unbounded();
 
         let socket = Socket::new(Protocol::Surveyor0)?;
         socket.set_opt::<SurveyTime>(Some(Duration::from_secs(1)))?;
@@ -100,7 +104,7 @@ mod test {
         thread::spawn(move || respondent_loop(&respondent_socket).unwrap());
         thread::spawn(move || start_loop(&socket, tx));
 
-        let srv_map = rx.recv_timeout(Duration::from_secs(5))?;
+        let srv_map = rx.next().timeout(Duration::from_secs(5)).await?.unwrap();
 
         assert_eq!(
             srv_map,

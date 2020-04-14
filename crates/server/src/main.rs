@@ -1,71 +1,123 @@
+// #![warn(clippy::all)]
+
 mod discovery;
 mod util;
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures::prelude::*;
+use async_std::task;
+use futures::{channel::mpsc, prelude::*, select_biased};
 
 use rendezvous_common::{
     anyhow,
     data::*,
-    ipc,
-    nng::{
-        self,
-        options::{protocol::pair::Polyamorous, Options},
-        Message, Pipe, PipeEvent, Protocol, Socket,
-    },
-    parking_lot::RwLock,
+    nng::{self, Message, Protocol, Socket},
     serde_cbor,
-    tracing::{self, debug, debug_span, info, instrument, warn},
+    tracing::{self, debug, debug_span, info, warn},
 };
 
-#[tokio::main]
+#[async_std::main]
 async fn main() -> anyhow::Result<()> {
     tracing::init()?;
 
     info!("Initializing...");
 
-    let bouncers = Arc::new(RwLock::default());
+    let (tx, mut rx) = mpsc::unbounded();
+    task::spawn_blocking(move || discovery::start(tx));
 
-    let socket = Socket::new(Protocol::Pair1)?;
-    socket.set_opt::<Polyamorous>(true)?;
-
-    let b = bouncers.clone();
-    socket.pipe_notify(move |pipe, event| handle_pipe_events(&mut b.write(), pipe, event))?;
-
-    let address = ipc::address();
-    let mut srv = util::serve(&socket, &address).await?;
-    info!("Listening...");
+    let mut bouncers = HashMap::new();
 
     let span = debug_span!("main loop");
     let _enter = span.enter();
 
-    while let Some(mut msg) = srv.try_next().await? {
-        debug!("pipe: {:?}", msg.pipe());
-
-        if let Ok(event) = serde_cbor::from_slice::<Event>(msg.as_slice()) {
-            debug!("Event: {:#?}", event);
-            process_message(&socket, &bouncers, &mut msg);
+    let (msg_tx, mut msg_rx) = mpsc::unbounded();
+    loop {
+        select_biased! {
+            srv_map = rx.select_next_some() => {
+                update_services(&mut bouncers, &srv_map, &msg_tx).await;
+                info!("bouncers: {}", bouncers.len());
+            }
+            i = msg_rx.select_next_some() => {
+                let (sender, msg) = i;
+                if let Ok(event) = serde_cbor::from_slice::<Event>(msg.as_slice()) {
+                    debug!("Event: {:#?}", event);
+                    process_message(&mut bouncers, sender, &msg).await;
+                }
+            }
+            complete => break,
         }
     }
 
     Ok(())
 }
 
-fn process_message(socket: &Socket, bouncers: &RwLock<HashSet<Pipe>>, msg: &mut Message) {
+struct Bouncer {
+    socket: Socket,
+    join_handle: futures::future::Fuse<task::JoinHandle<()>>,
+}
+
+async fn update_services(
+    bouncers: &mut HashMap<Arc<str>, Bouncer>,
+    srv_map: &HashMap<String, Vec<String>>,
+    msg_tx: &mpsc::UnboundedSender<(Arc<str>, Message)>,
+) {
+    if let Some(s) = srv_map.get("rdv.bnc.compat") {
+        for addr in s {
+            let addr = &addr[..];
+            if bouncers.contains_key(addr) {
+                continue;
+            }
+            let addr: Arc<_> = addr.into();
+            match establish(Arc::clone(&addr), msg_tx).await {
+                Ok(s) => {
+                    bouncers.insert(addr, s);
+                }
+                Err(e) => {
+                    warn!("{}", e);
+                }
+            }
+        }
+        bouncers.retain(|addr, _| s.iter().find(|a| &a[..] == &addr[..]).is_some());
+    }
+}
+
+async fn establish(
+    addr: Arc<str>,
+    tx: &mpsc::UnboundedSender<(Arc<str>, Message)>,
+) -> nng::Result<Bouncer> {
+    let socket = Socket::new(Protocol::Pair1)?;
+    socket.dial_async(&addr)?;
+    let mut tx = tx.clone();
+    let mut msgs = util::messages(&socket).await?;
+    let join_handle = task::spawn(async move {
+        while let Some(Ok(i)) = msgs.next().await {
+            if tx.send((addr.clone(), i)).await.is_err() {
+                break;
+            }
+        }
+    })
+    .fuse();
+    Ok(Bouncer {
+        socket,
+        join_handle,
+    })
+}
+
+async fn process_message(
+    bouncers: &mut HashMap<Arc<str>, Bouncer>,
+    sender: Arc<str>,
+    msg: &Message,
+) {
     let mut broken_pipes = vec![];
-    let sender = msg.pipe();
-    for b in bouncers
-        .read()
-        .iter()
-        .copied()
-        .filter(|&b| sender != Some(b))
-    {
-        match send_message(&socket, b, msg.as_slice()) {
+    for (addr, b) in &*bouncers {
+        if *addr == sender {
+            continue;
+        }
+        match send_message(&b.socket, msg.as_slice()).await {
             Ok(()) => {}
             Err(nng::Error::Closed) => {
-                broken_pipes.push(b);
+                broken_pipes.push(addr.clone());
             }
             Err(e) => {
                 warn!("{}", e);
@@ -73,31 +125,13 @@ fn process_message(socket: &Socket, bouncers: &RwLock<HashSet<Pipe>>, msg: &mut 
         }
     }
     if !broken_pipes.is_empty() {
-        bouncers.write().retain(|b| !broken_pipes.contains(b));
+        bouncers.retain(|addr, _| !broken_pipes.contains(addr));
     }
 }
 
-#[instrument]
-fn send_message(socket: &Socket, pipe: Pipe, content: &[u8]) -> Result<(), nng::Error> {
+async fn send_message(socket: &Socket, content: &[u8]) -> Result<(), nng::Error> {
     let mut m = Message::new();
-    m.set_pipe(pipe);
     m.push_back(content);
-    socket.send(m)?;
+    util::send(socket, m).await?;
     Ok(())
-}
-
-#[instrument]
-fn handle_pipe_events(bouncers: &mut HashSet<Pipe>, pipe: Pipe, event: PipeEvent) {
-    match event {
-        PipeEvent::AddPost => {
-            info!("AddPost");
-            bouncers.insert(pipe);
-        }
-        PipeEvent::RemovePost => {
-            info!("RemovePost");
-            bouncers.remove(&pipe);
-        }
-        _ => {}
-    }
-    info!("Bouncers connected: {}", bouncers.len());
 }

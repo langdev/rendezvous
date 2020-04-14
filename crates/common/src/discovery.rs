@@ -2,6 +2,8 @@ use nng::{self, Message, Protocol, Socket};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
+use crate::ipc::dial;
+
 pub fn address() -> String {
     std::env::var("RENDEZVOUS_DISCOVERY_ADDR")
         .unwrap_or_else(|_| "ipc:///var/tmp/rendezvous-discovery.pipe".to_owned())
@@ -9,7 +11,7 @@ pub fn address() -> String {
 
 pub fn register(address: &str, service_info: ServiceInfo) -> anyhow::Result<()> {
     let socket = Socket::new(Protocol::Respondent0)?;
-    socket.dial(address)?;
+    dial(&socket, address)?;
     register_loop(&socket, service_info)
 }
 

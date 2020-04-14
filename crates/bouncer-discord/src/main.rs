@@ -10,7 +10,7 @@ use std::thread;
 use rendezvous_common::{
     anyhow,
     data::*,
-    ipc,
+    discovery, ipc,
     parking_lot::RwLock,
     tracing::{self, debug, info, info_span, warn},
 };
@@ -41,7 +41,19 @@ fn main() -> anyhow::Result<()> {
     let handler = Handler::new(event_tx);
     let channels = Arc::clone(&handler.channels);
     let mut client = Client::new(&token, handler)?;
-    ipc::spawn_socket(msg_tx, event_rx)?;
+
+    let ipc_address = "ipc:///var/tmp/rendezvous.bnc.compat.discord.pipe".to_owned();
+    ipc::spawn_socket(&ipc_address, msg_tx, event_rx)?;
+
+    thread::spawn(move || {
+        discovery::register(
+            &discovery::address(),
+            discovery::ServiceInfo {
+                name: "rdv.bnc.compat".to_owned(),
+                address: ipc_address,
+            },
+        )
+    });
 
     let http = Arc::clone(&client.cache_and_http.http);
     thread::spawn(move || {

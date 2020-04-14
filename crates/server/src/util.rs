@@ -93,6 +93,10 @@ impl<T: Stream> Stream for Wrap<T> {
 
 #[cfg(test)]
 mod test {
+    use std::time::Duration;
+
+    use async_std::prelude::FutureExt as _;
+
     use super::*;
 
     #[async_std::test]
@@ -103,6 +107,7 @@ mod test {
         socket.listen(address).unwrap();
         let msgs = messages(&socket).await.unwrap();
 
+        task::sleep(Duration::from_secs(1)).await;
         task::spawn_blocking(move || {
             use std::io::Write as _;
             let socket = Socket::new(nng::Protocol::Pair1).unwrap();
@@ -113,9 +118,16 @@ mod test {
                 write!(msg, "{}", i).unwrap();
                 socket.send(msg.clone()).unwrap();
             }
+            std::thread::yield_now();
         });
 
-        let data = msgs.take(3).try_collect::<Vec<_>>().await.unwrap();
+        let data = msgs
+            .take(3)
+            .try_collect::<Vec<_>>()
+            .timeout(Duration::from_secs(5))
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(data[0].as_slice(), b"1");
         assert_eq!(data[1].as_slice(), b"2");
         assert_eq!(data[2].as_slice(), b"3");

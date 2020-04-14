@@ -5,6 +5,7 @@ executors:
     - image: circleci/rust
     environment:
       CARGO_INCREMENTAL: 0
+      RUST_BACKTRACE: 1
     working_directory: ~/work
   coverage:
     machine:

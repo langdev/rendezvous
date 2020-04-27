@@ -113,7 +113,7 @@ mod test {
             let socket = Socket::new(nng::Protocol::Pair1).unwrap();
             socket.dial(address).unwrap();
             let mut msg = Message::new();
-            for i in 1..=3 {
+            for i in 1..=5 {
                 msg.clear();
                 write!(msg, "{}", i).unwrap();
                 socket.send(msg.clone()).unwrap();

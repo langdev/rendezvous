@@ -86,9 +86,8 @@ mod test {
         let addr = "inproc://receive_basic";
         let server_socket = socket_pair1_new().unwrap();
         server_socket.listen(addr).unwrap();
-        thread::spawn(move || receive_from_socket(server_socket, msg_tx));
-        thread::sleep(Duration::from_secs(1));
 
+        thread::sleep(Duration::from_secs(1));
         thread::spawn(move || {
             let client_socket = socket_pair1_new().unwrap();
             dial(&client_socket, addr).unwrap();
@@ -98,6 +97,9 @@ mod test {
             client_socket.send(m).unwrap();
             thread::yield_now();
         });
+
+        thread::sleep(Duration::from_secs(1));
+        thread::spawn(move || receive_from_socket(server_socket, msg_tx));
 
         let s: String = msg_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(s, "Hello server");

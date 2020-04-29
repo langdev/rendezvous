@@ -24,7 +24,7 @@ fn main() -> anyhow::Result<()> {
         discovery::register(
             &discovery::address(),
             discovery::ServiceInfo {
-                name: "rdv.bnc.compat".to_owned(),
+                kind: "rdv.bnc.compat".to_owned(),
                 address: ipc_address,
             },
         )

@@ -47,7 +47,7 @@ fn start_loop(socket: &Socket, tx: mpsc::UnboundedSender<ServiceMap>) -> nng::Re
                 Ok(v) => v,
             };
             services
-                .entry(service_info.name)
+                .entry(service_info.kind)
                 .or_default()
                 .push(service_info.address);
         }
@@ -93,7 +93,7 @@ mod test {
             serde_cbor::to_writer(
                 &mut msg,
                 &ServiceInfo {
-                    name: "echo".to_owned(),
+                    kind: "echo".to_owned(),
                     address: "inproc://echo".to_owned(),
                 },
             )?;

@@ -30,7 +30,7 @@ fn register_loop(socket: &Socket, service_info: ServiceInfo) -> anyhow::Result<(
 
 #[derive(Deserialize, Serialize)]
 pub struct ServiceInfo {
-    pub name: String,
+    pub kind: String,
     pub address: String,
 }
 
@@ -47,7 +47,7 @@ mod test {
     fn register_basic() {
         let address = "inproc://register-basic";
         let service_info = ServiceInfo {
-            name: "foo".to_owned(),
+            kind: "foo".to_owned(),
             address: "inproc://foo".to_owned(),
         };
 
@@ -74,7 +74,7 @@ mod test {
         let msg = socket.recv().unwrap();
         info!("response received");
         let service_info: ServiceInfo = serde_cbor::from_slice(&msg).unwrap();
-        assert_eq!(service_info.name, "foo");
+        assert_eq!(service_info.kind, "foo");
         assert_eq!(service_info.address, "inproc://foo");
     }
 }

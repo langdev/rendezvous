@@ -1,30 +1,36 @@
 use std::io;
 
-use serde::de::{value::StrDeserializer, Deserialize, IntoDeserializer};
+use serde::de::{self, value::StrDeserializer, Deserialize, Error as _, IntoDeserializer};
 
-use rendezvous_common::{
-    anyhow,
-    serde_cbor::{self, ser::IoWrite},
-};
+use rendezvous_common::serde_cbor::{self, ser::IoWrite};
 
 use super::{Event, EventName};
 
-pub fn deserialize_event<'a>(data: &'a [u8]) -> anyhow::Result<Event<'a>> {
+pub fn deserialize_event<'a>(data: &'a [u8]) -> Result<Event<'a>, serde_cbor::Error> {
     let pos = data
         .iter()
         .position(|b| *b == b'\n')
         .unwrap_or_else(|| data.len());
     let (header, body) = data.split_at(pos);
     let body = &body[1..];
-    let parts: Vec<_> = header.split(|b| *b == b'.').collect();
-    // TODO: verify parts[0] == b"event"
-    let de: StrDeserializer<serde_cbor::Error> = std::str::from_utf8(parts[1])?.into_deserializer();
+    let de: StrDeserializer<serde_cbor::Error> = parse_header(header)
+        .ok_or_else(|| serde_cbor::Error::invalid_value(de::Unexpected::Bytes(header), &"header"))?
+        .into_deserializer();
     let name = EventName::deserialize(de)?;
     let mut de = serde_cbor::Deserializer::new(serde_cbor::de::SliceRead::new(body));
     Ok(Event::deserialize_inner(name, &mut de)?)
 }
 
-pub fn serialize_event<W>(mut writer: W, event: &Event<'_>) -> anyhow::Result<()>
+fn parse_header(header: &[u8]) -> Option<&str> {
+    let mut parts = header.split(|b| *b == b'.');
+    if parts.next()? != b"event" {
+        return None;
+    }
+    let name = parts.next()?;
+    std::str::from_utf8(name).ok()
+}
+
+pub fn serialize_event<W>(mut writer: W, event: &Event<'_>) -> Result<(), serde_cbor::Error>
 where
     W: io::Write,
 {

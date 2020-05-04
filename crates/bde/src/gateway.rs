@@ -1,13 +1,20 @@
 use std::marker::Unpin;
 use std::time::Duration;
 
-use anyhow::anyhow;
 use async_std::{io, prelude::*, stream::interval, writeln};
-use async_tungstenite::tungstenite::{Error as WsError, Message};
+use async_tungstenite::{
+    tungstenite::{Error as WsError, Message},
+    WebSocketStream,
+};
 use futures::{select, FutureExt as _, Sink, SinkExt as _, TryStreamExt as _};
 use serde::Serialize;
 
-use crate::data::{Event, Payload};
+use rendezvous_common::{
+    anyhow::{self, anyhow},
+    nng,
+};
+
+use crate::data::{ipc, Event, Payload};
 
 #[cfg(target_os = "linux")]
 const OS: &str = "linux";
@@ -16,20 +23,32 @@ const OS: &str = "macos";
 #[cfg(target_os = "windows")]
 const OS: &str = "windows";
 
-pub struct State<S> {
-    stream: S,
+pub struct State<W> {
+    stream: W,
     stdout: io::Stdout,
+    socket: nng::Socket,
     timer: futures::stream::Fuse<async_std::stream::Interval>,
     session_id: Option<String>,
     last_sequence_number: Option<i64>,
     heartbeat_tries: u8,
 }
 
-impl<S> State<S>
-where
-    S: Stream<Item = Result<Message, WsError>> + Sink<Message, Error = WsError> + Unpin,
+pub trait WebSocket:
+    Stream<Item = Result<Message, WsError>> + Sink<Message, Error = WsError>
 {
-    pub async fn establish(mut stream: S, token: &str) -> anyhow::Result<Self> {
+}
+
+impl<S> WebSocket for WebSocketStream<S> where S: io::Read + io::Write + Unpin {}
+
+impl<W> State<W>
+where
+    W: WebSocket + Unpin,
+{
+    pub async fn establish(
+        mut stream: W,
+        token: &str,
+        socket: nng::Socket,
+    ) -> anyhow::Result<Self> {
         let message = stream
             .try_next()
             .timeout(Duration::from_secs(4))
@@ -63,6 +82,7 @@ where
         Ok(State {
             stream,
             stdout: io::stdout(),
+            socket,
             timer,
             session_id: None,
             last_sequence_number: None,
@@ -85,38 +105,31 @@ where
                 }
             };
             let data = message.into_data();
-            self.handle_message(&data).await?;
+            let payload = match serde_json::from_slice(&data) {
+                Ok(p) => p,
+                Err(_) => {
+                    self.stdout.write_all(&data).await?;
+                    writeln!(self.stdout).await?;
+                    return Ok(());
+                }
+            };
+            self.handle_payload(&payload).await?;
         }
         Ok(())
     }
 
-    async fn handle_message<'a>(&mut self, data: &'a [u8]) -> anyhow::Result<()> {
-        let payload = match serde_json::from_slice(&data) {
-            Ok(p) => p,
-            Err(_) => {
-                self.stdout.write_all(&data).await?;
-                writeln!(self.stdout).await?;
-                return Ok(());
-            }
-        };
-
+    async fn handle_payload<'a>(&mut self, payload: &'a Payload<'a>) -> anyhow::Result<()> {
         match payload {
             Payload::Event { event, seq } => {
-                self.last_sequence_number = Some(seq);
+                self.last_sequence_number = Some(*seq);
                 match event {
                     Event::Ready(e) => {
                         self.session_id = Some(e.session_id.to_owned());
                     }
-                    Event::MessageCreate(_) => {
-                        let value: serde_json::Value = serde_json::from_slice(&data)?;
-                        let buf = serde_json::to_vec_pretty(&value)?;
-                        self.stdout.write_all(&buf).await?;
-                        writeln!(self.stdout).await?;
-                    }
                     _ => {
-                        let s = serde_cbor::ser::to_vec(&event)?;
-                        self.stdout.write_all(&s).await?;
-                        writeln!(self.stdout).await?;
+                        let mut msg = nng::Message::new();
+                        ipc::serialize_event(&mut msg, event)?;
+                        self.socket.send(msg).map_err(|(_, err)| err)?;
                     }
                 }
             }
@@ -146,7 +159,7 @@ where
 }
 
 mod util {
-    use serde::Serialize;
+    use serde::{self, Serialize};
 
     pub use crate::data::OpCode;
 

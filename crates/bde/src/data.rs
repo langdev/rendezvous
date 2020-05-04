@@ -1,10 +1,13 @@
+pub mod ipc;
+mod util;
+
 use std::borrow::Cow;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use serde::{
     de::{self, MapAccess, Visitor},
-    Deserialize, Serialize,
+    ser, Deserialize, Serialize,
 };
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
@@ -34,7 +37,7 @@ pub enum OpCode {
 
 macro_rules! event {
     ($($borrowed:ident,)* / $($owned:ident,)*) => {
-        #[derive(Clone, Debug, Deserialize, PartialEq)]
+        #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
         #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
         pub enum EventName {
             $($borrowed,)*
@@ -53,7 +56,7 @@ macro_rules! event {
             )*
         }
 
-        impl Event<'_> {
+        impl<'a> Event<'a> {
             pub fn name(&self) -> EventName {
                 match self {
                     $(
@@ -61,6 +64,34 @@ macro_rules! event {
                     )*
                     $(
                         Event::$owned(_) => EventName::$owned,
+                    )*
+                }
+            }
+
+            pub fn deserialize_inner<D>(name: EventName, deserializer: D) -> Result<Self, D::Error>
+            where
+                D: de::Deserializer<'a>
+            {
+                match name {
+                    $(
+                        EventName::$borrowed => Ok(Event::$borrowed(Deserialize::deserialize(deserializer)?)),
+                    )*
+                    $(
+                        EventName::$owned => Ok(Event::$owned(Deserialize::deserialize(deserializer)?)),
+                    )*
+                }
+            }
+
+            pub fn serialize_inner<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: ser::Serializer
+            {
+                match self {
+                    $(
+                        Event::$borrowed(e) => Serialize::serialize(e, serializer),
+                    )*
+                    $(
+                        Event::$owned(e) => Serialize::serialize(e, serializer),
                     )*
                 }
             }
@@ -93,6 +124,12 @@ event! {
     MessageCreate,
     /
     WebhooksUpdate,
+}
+
+impl std::fmt::Display for EventName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Serialize::serialize(self, self::util::FmtSerializer(f)).map_err(|e| e.into_inner())
+    }
 }
 
 #[derive(Debug, Deserialize)]

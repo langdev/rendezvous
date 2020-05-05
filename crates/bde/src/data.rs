@@ -128,7 +128,7 @@ event! {
 
 impl std::fmt::Display for EventName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Serialize::serialize(self, self::util::FmtSerializer(f)).map_err(|e| e.into_inner())
+        self::util::FmtSerializer(f).write(self)
     }
 }
 

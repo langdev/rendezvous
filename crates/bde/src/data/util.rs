@@ -8,7 +8,7 @@ use serde::{
 
 pub struct FmtSerializer<'a, 'b>(pub &'a mut fmt::Formatter<'b>);
 
-impl Serializer for FmtSerializer<'_, '_> {
+impl Serializer for &mut FmtSerializer<'_, '_> {
     type Ok = ();
     type Error = Error;
     type SerializeSeq = Impossible<Self::Ok, Self::Error>;
@@ -167,6 +167,15 @@ impl Serializer for FmtSerializer<'_, '_> {
     }
 }
 
+impl FmtSerializer<'_, '_> {
+    pub fn write<T>(&mut self, value: &T) -> fmt::Result
+    where
+        T: Serialize,
+    {
+        Serialize::serialize(value, self).map_err(|e| e.into_inner())
+    }
+}
+
 #[derive(Debug)]
 pub struct Error(fmt::Error);
 
@@ -205,4 +214,62 @@ impl ser::Error for Error {
 
 fn unimpl<T>() -> Result<T, Error> {
     Err(Error(fmt::Error))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    struct DisplayAdapter<T>(T);
+
+    impl<T> fmt::Display for DisplayAdapter<T>
+    where
+        T: Serialize,
+    {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            FmtSerializer(f).write(&self.0)
+        }
+    }
+
+    macro_rules! test_should_panic {
+        ($($name:ident : $value:expr,)*) => {
+            $(
+                #[test]
+                #[should_panic]
+                fn $name() {
+                    format!("{}", DisplayAdapter($value));
+                }
+            )*
+        }
+    }
+
+    #[derive(Serialize)]
+    struct UnitStruct;
+
+    #[derive(Serialize)]
+    struct NewTypeStruct<T>(T);
+
+    test_should_panic! {
+        serialize_bool: true,
+        serialize_i8: 0i8,
+        serialize_i16: 1i16,
+        serialize_i32: 2i32,
+        serialize_i64: 3i64,
+        serialize_u8: 4u8,
+        serialize_u16: 5u16,
+        serialize_u32: 6u32,
+        serialize_u64: 7u64,
+        serialize_f32: 8f32,
+        serialize_f64: 9f64,
+        serialize_char: '가',
+        serialize_bytes: b"\x00\x01\x02\x03",
+        serialize_unit: (),
+        serialize_unit_struct: UnitStruct,
+        serialize_new_type_struct: NewTypeStruct("str"),
+    }
+
+    #[test]
+    fn serialize_str() {
+        assert_eq!(format!("{}", DisplayAdapter("str")), "str");
+    }
 }

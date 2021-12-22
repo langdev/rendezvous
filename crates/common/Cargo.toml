@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 anyhow = "1.0"
-nng = "1.0.0-rc.2"
+nng = "1.0.1"
 parking_lot = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_cbor = "0.11"

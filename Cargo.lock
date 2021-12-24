@@ -494,7 +494,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "501466ecc8a30d1d3b7fc9229b122b2ce8ed6e9d9223f1138d4babb253e51817"
 dependencies = [
  "typenum",
- "version_check",
+ "version_check 0.9.3",
 ]
 
 [[package]]
@@ -923,9 +923,9 @@ dependencies = [
 
 [[package]]
 name = "nng"
-version = "1.0.1"
+version = "1.0.0-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20a18ed7ec1c8ff1658bcfea2ce76dcedf8be21dd9e8dd2e9762ba9632d16203"
+checksum = "bfa5c41250767c5e025cc997c2d853b2c7185a96b3ef54945aad74f28821ea65"
 dependencies = [
  "log",
  "nng-sys",
@@ -933,12 +933,12 @@ dependencies = [
 
 [[package]]
 name = "nng-sys"
-version = "1.4.0-rc.0"
+version = "1.2.4-rc.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50d0e7f39a8fd1792a710da9351320e864dc799cf439960e332c977b2f876da6"
+checksum = "929dadbd2e464ea3f05e5efb53871c00d014fe059030c4e509f20e758891d493"
 dependencies = [
  "cmake",
- "version_check",
+ "version_check 0.1.5",
 ]
 
 [[package]]
@@ -1301,6 +1301,7 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "nng",
+ "nng-sys",
  "parking_lot 0.9.0",
  "scopeguard",
  "serde",
@@ -2137,7 +2138,7 @@ version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "50f37be617794602aabbeee0be4f259dc1778fabe05e2d67ee8f79326d5cb4f6"
 dependencies = [
- "version_check",
+ "version_check 0.9.3",
 ]
 
 [[package]]
@@ -2199,6 +2200,12 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
+
+[[package]]
+name = "version_check"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "914b1a6776c4c929a602fafd8bc742e06365d4bcbe48c30f9cca5824f70dc9dd"
 
 [[package]]
 name = "version_check"

@@ -1,7 +1,5 @@
-#![deny(rust_2018_idioms)]
-#![deny(proc_macro_derive_resolution_fallback)]
+#![warn(clippy::all)]
 
-pub mod data;
 pub mod proto;
 pub mod tracing;
 

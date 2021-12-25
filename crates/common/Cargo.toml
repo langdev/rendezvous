@@ -6,15 +6,25 @@ edition = "2018"
 license = "AGPL-3.0"
 publish = false
 
+[features]
+# default = ["legacy"]
+legacy = ["nng", "nng-sys"]
+
 [dependencies]
 anyhow = "1.0"
-nng = "1.0.0-rc.2"
-nng-sys = { version = "1.2.4-rc", default-features = false }
+futures = "0.3"
+nng = { version = "1.0.0-rc.2", optional = true }
+nng-sys = { version = "1.2.4-rc", optional = true, default-features = false }
 parking_lot = "0.9"
+prost = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_cbor = "0.11"
+tonic = "0.6"
 tracing = "0.1"
 tracing-subscriber = "0.2"
+
+[build-dependencies]
+tonic-build = "0.6"
 
 [dev-dependencies]
 scopeguard = "1.1"

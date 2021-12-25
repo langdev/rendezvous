@@ -1,6 +1,8 @@
 #![deny(rust_2018_idioms)]
 #![deny(proc_macro_derive_resolution_fallback)]
 
+use std::borrow::Cow;
+
 use irc::client::{prelude::*, ClientStream};
 
 use rendezvous_common::{
@@ -83,7 +85,18 @@ async fn handle_rpc_stream(
                 content,
                 ..
             })) => {
-                sender.send_privmsg(&channel, &format!("<{}> {}", nickname, content))?;
+                let mut is_codeblock = false;
+                for line in content.split_terminator('\n') {
+                    let message = if is_codeblock {
+                        Cow::Borrowed(line)
+                    } else {
+                        Cow::Owned(format!("<{}> {}", nickname, line))
+                    };
+                    sender.send_privmsg(&channel, &message)?;
+                    if line.contains("```") {
+                        is_codeblock = !is_codeblock;
+                    }
+                }
             }
             _ => {}
         }

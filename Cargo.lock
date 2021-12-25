@@ -1582,6 +1582,7 @@ dependencies = [
  "scopeguard",
  "serde",
  "serde_cbor",
+ "tokio 1.15.0",
  "tonic",
  "tonic-build",
  "tracing",
@@ -1593,6 +1594,7 @@ name = "rendezvous-server"
 version = "0.4.0-dev"
 dependencies = [
  "rendezvous-common",
+ "tokio-stream",
 ]
 
 [[package]]
@@ -2049,6 +2051,7 @@ dependencies = [
  "libc",
  "memchr",
  "mio 0.7.14",
+ "num_cpus",
  "pin-project-lite 0.2.7",
  "tokio-macros",
  "winapi 0.3.9",

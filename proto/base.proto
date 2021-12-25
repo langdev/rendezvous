@@ -6,8 +6,9 @@ message Header {
 }
 
 enum ClientType {
-  CLIENT_TYPE_IRC = 0;
-  CLIENT_TYPE_DISCORD = 1;
+  CLIENT_TYPE_UNKNOWN = 0;
+  CLIENT_TYPE_IRC = 1;
+  CLIENT_TYPE_DISCORD = 2;
 }
 
 message PostResult {
@@ -26,8 +27,12 @@ message UserRenamed {
 }
 
 message Event {
-  MessageCreated message_created = 16;
-  UserRenamed user_renamed = 17;
+  Header header = 1;
+
+  oneof body {
+    MessageCreated message_created = 16;
+    UserRenamed user_renamed = 17;
+  }
 }
 
 service BouncerService {

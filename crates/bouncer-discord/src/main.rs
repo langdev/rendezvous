@@ -4,14 +4,18 @@
 mod channel;
 mod guild;
 
-use std::sync::{mpsc, Arc};
-use std::thread;
+use std::sync::Arc;
 
+use rendezvous_common::proto::UserRenamed;
 use rendezvous_common::{
     anyhow,
-    data::*,
-    ipc,
+    futures::prelude::*,
     parking_lot::RwLock,
+    proto::{
+        bouncer_service_client::BouncerServiceClient, event, ClientType, Event, Header,
+        MessageCreated,
+    },
+    tokio::{self, sync::mpsc},
     tracing::{self, debug, info, info_span, warn},
 };
 use serenity::{
@@ -30,39 +34,65 @@ use crate::{
     guild::{author_name, GuildData, GuildMap, UserData},
 };
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     tracing::init()?;
+
+    let mut rpc_client = BouncerServiceClient::connect("http://[::1]:49252").await?;
 
     let token = std::env::var("RENDEZVOUS_DISCORD_BOT_TOKEN")?;
 
-    let (msg_tx, msg_rx) = mpsc::channel();
-    let (event_tx, event_rx) = mpsc::sync_channel(8);
+    let (event_tx, mut event_rx) = mpsc::channel::<Event>(8);
 
     let handler = Handler::new(event_tx);
     let channels = Arc::clone(&handler.channels);
-    let mut client = Client::new(&token, handler)?;
-    ipc::spawn_socket(msg_tx, event_rx)?;
+    let mut discord_client = Client::new(&token, handler)?;
 
-    let http = Arc::clone(&client.cache_and_http.http);
-    thread::spawn(move || {
-        for m in msg_rx {
-            handle_ipc_event(&http, &channels, m).unwrap();
+    let http = Arc::clone(&discord_client.cache_and_http.http);
+
+    let mut resp = rpc_client
+        .subscribe(Header {
+            client_type: ClientType::Discord.into(),
+        })
+        .await?;
+
+    let handle_rpc_stream = tokio::task::spawn(async move {
+        let stream = resp.get_mut();
+        while let Some(m) = stream.try_next().await? {
+            handle_ipc_event(&http, &channels, m)?;
         }
+        Ok::<_, anyhow::Error>(())
     });
 
-    client.start_autosharded()?;
+    let delegate_post_requests = tokio::spawn(async move {
+        while let Some(e) = event_rx.recv().await {
+            rpc_client.post(e).await?;
+        }
+        Ok::<(), anyhow::Error>(())
+    });
+
+    let handle_discord_events = tokio::task::spawn_blocking(move || {
+        discord_client.start_autosharded()?;
+        Ok::<_, anyhow::Error>(())
+    });
+
+    tokio::try_join!(
+        handle_rpc_stream,
+        delegate_post_requests,
+        handle_discord_events,
+    )?;
 
     Ok(())
 }
 
 fn handle_ipc_event(http: &Http, channels: &RwLock<ChannelList>, e: Event) -> anyhow::Result<()> {
-    match e {
-        Event::MessageCreated {
+    match e.body {
+        Some(event::Body::MessageCreated(MessageCreated {
             nickname,
             channel,
             content,
             ..
-        } => {
+        })) => {
             if !channel.starts_with("#") {
                 return Ok(());
             }
@@ -88,11 +118,11 @@ struct Handler {
     guilds: RwLock<GuildMap>,
     channels: Arc<RwLock<ChannelList>>,
     current_user: RwLock<Option<model::user::CurrentUser>>,
-    event_tx: mpsc::SyncSender<Event>,
+    event_tx: mpsc::Sender<Event>,
 }
 
 impl Handler {
-    fn new(event_tx: mpsc::SyncSender<Event>) -> Self {
+    fn new(event_tx: mpsc::Sender<Event>) -> Self {
         Handler {
             guilds: Default::default(),
             channels: Default::default(),
@@ -177,9 +207,14 @@ impl EventHandler for Handler {
             .and_then(|g| g.members.get_mut(&new.id))
         {
             if m.name != new.name {
-                let _ = self.event_tx.send(Event::UserRenamed {
-                    old: m.name.clone(),
-                    new: new.name.clone(),
+                let _ = self.event_tx.send(Event {
+                    header: Some(Header {
+                        client_type: ClientType::Discord.into(),
+                    }),
+                    body: Some(event::Body::UserRenamed(UserRenamed {
+                        old: m.name.clone(),
+                        new: new.name.clone(),
+                    })),
                 });
             }
             *m = new;
@@ -203,11 +238,16 @@ impl EventHandler for Handler {
 
         if let Some(ch) = self.channels.read().get_by_id(new_message.channel_id) {
             self.event_tx
-                .send(Event::MessageCreated {
-                    nickname: author_name(&self.guilds.read(), &new_message).to_owned(),
-                    channel: format!("#{}", ch.name()),
-                    content: new_message.content,
-                    origin: None,
+                .blocking_send(Event {
+                    header: Some(Header {
+                        client_type: ClientType::Discord.into(),
+                    }),
+                    body: Some(event::Body::MessageCreated(MessageCreated {
+                        nickname: author_name(&self.guilds.read(), &new_message).to_owned(),
+                        channel: format!("#{}", ch.name()),
+                        content: new_message.content,
+                        origin: "".to_owned(),
+                    })),
                 })
                 .unwrap();
         } else {

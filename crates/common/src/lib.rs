@@ -7,7 +7,6 @@ pub mod tracing;
 
 pub use anyhow;
 pub use futures;
-pub use parking_lot;
 pub use serde;
 pub use serde_cbor;
 pub use tokio;

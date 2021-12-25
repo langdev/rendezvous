@@ -6,14 +6,13 @@ mod guild;
 
 use std::sync::Arc;
 
-use rendezvous_common::proto::UserRenamed;
+use parking_lot::RwLock;
 use rendezvous_common::{
     anyhow,
     futures::prelude::*,
-    parking_lot::RwLock,
     proto::{
         bouncer_service_client::BouncerServiceClient, event, ClientType, Event, Header,
-        MessageCreated,
+        MessageCreated, UserRenamed,
     },
     tokio::{self, sync::mpsc},
     tracing::{self, debug, info, info_span, warn},

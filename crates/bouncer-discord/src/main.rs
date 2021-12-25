@@ -5,6 +5,7 @@ mod guild;
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use parking_lot::RwLock;
 use rendezvous_common::{
     anyhow,
@@ -13,8 +14,9 @@ use rendezvous_common::{
         bouncer_service_client::BouncerServiceClient, event, ClientType, Event, Header,
         MessageCreated, UserRenamed,
     },
-    tokio::{self, sync::mpsc},
-    tracing::{self, debug, info, info_span, warn},
+    tokio,
+    tonic::transport,
+    tracing::{self, debug, error, info, info_span, warn},
 };
 use serenity::{
     http::Http,
@@ -40,11 +42,9 @@ async fn main() -> anyhow::Result<()> {
 
     let token = std::env::var("RENDEZVOUS_DISCORD_BOT_TOKEN")?;
 
-    let (event_tx, mut event_rx) = mpsc::channel::<Event>(8);
-
-    let handler = Handler::new(event_tx);
+    let handler = Handler::new(rpc_client.clone());
     let channels = Arc::clone(&handler.channels);
-    let mut discord_client = Client::new(&token, handler)?;
+    let mut discord_client = Client::builder(&token).event_handler(handler).await?;
 
     let http = Arc::clone(&discord_client.cache_and_http.http);
 
@@ -54,36 +54,28 @@ async fn main() -> anyhow::Result<()> {
         })
         .await?;
 
-    let handle_rpc_stream = tokio::task::spawn(async move {
+    let handle_rpc_stream = async move {
         let stream = resp.get_mut();
         while let Some(m) = stream.try_next().await? {
-            handle_ipc_event(&http, &channels, m)?;
+            handle_ipc_event(&http, &channels, m).await?;
         }
         Ok::<_, anyhow::Error>(())
-    });
+    };
 
-    let delegate_post_requests = tokio::spawn(async move {
-        while let Some(e) = event_rx.recv().await {
-            rpc_client.post(e).await?;
-        }
-        Ok::<(), anyhow::Error>(())
-    });
+    let handle_discord_events = discord_client
+        .start_autosharded()
+        .err_into::<anyhow::Error>();
 
-    let handle_discord_events = tokio::task::spawn_blocking(move || {
-        discord_client.start_autosharded()?;
-        Ok::<_, anyhow::Error>(())
-    });
-
-    tokio::try_join!(
-        handle_rpc_stream,
-        delegate_post_requests,
-        handle_discord_events,
-    )?;
+    tokio::try_join!(handle_rpc_stream, handle_discord_events,)?;
 
     Ok(())
 }
 
-fn handle_ipc_event(http: &Http, channels: &RwLock<ChannelList>, e: Event) -> anyhow::Result<()> {
+async fn handle_ipc_event(
+    http: &Http,
+    channels: &RwLock<ChannelList>,
+    e: Event,
+) -> anyhow::Result<()> {
     match e.body {
         Some(event::Body::MessageCreated(MessageCreated {
             nickname,
@@ -102,7 +94,8 @@ fn handle_ipc_event(http: &Http, channels: &RwLock<ChannelList>, e: Event) -> an
             if let Some(ch) = channels.get_by_name(&channel[1..]) {
                 debug!("{:?}", ch);
                 ch.id()
-                    .send_message(http, |m| m.content(format!("<{}> {}", nickname, content)))?;
+                    .send_message(http, |m| m.content(format!("<{}> {}", nickname, content)))
+                    .await?;
             } else {
                 warn!("unknown channel: {:?}", channel);
             }
@@ -116,16 +109,16 @@ struct Handler {
     guilds: RwLock<GuildMap>,
     channels: Arc<RwLock<ChannelList>>,
     current_user: RwLock<Option<model::user::CurrentUser>>,
-    event_tx: mpsc::Sender<Event>,
+    rpc_client: BouncerServiceClient<transport::Channel>,
 }
 
 impl Handler {
-    fn new(event_tx: mpsc::Sender<Event>) -> Self {
+    fn new(rpc_client: BouncerServiceClient<transport::Channel>) -> Self {
         Handler {
             guilds: Default::default(),
             channels: Default::default(),
             current_user: Default::default(),
-            event_tx,
+            rpc_client,
         }
     }
 
@@ -145,8 +138,9 @@ impl Handler {
     }
 }
 
+#[async_trait]
 impl EventHandler for Handler {
-    fn ready(
+    async fn ready(
         &self,
         _ctx: Context,
         model::gateway::Ready {
@@ -171,10 +165,9 @@ impl EventHandler for Handler {
         );
     }
 
-    fn guild_create(&self, _ctx: Context, guild: Guild) {
+    async fn guild_create(&self, _ctx: Context, guild: Guild) {
         let mut new_channels = vec![];
-        for channel in guild.channels.values() {
-            let chan = channel.read();
+        for chan in guild.channels.values() {
             if self.register_guild_channel(&chan) {
                 new_channels.push(chan.name.clone());
             }
@@ -182,22 +175,28 @@ impl EventHandler for Handler {
         self.insert_guild(guild);
     }
 
-    fn guild_member_addition(&self, _ctx: Context, guild_id: GuildId, new_member: Member) {
+    async fn guild_member_addition(&self, _ctx: Context, guild_id: GuildId, new_member: Member) {
         if let Some(g) = self.guilds.write().get_mut(&guild_id) {
-            let id = new_member.user.read().id;
+            let id = new_member.user.id;
             g.members.insert(id, new_member.into());
         }
     }
 
-    fn guild_member_removal(&self, _ctx: Context, guild_id: GuildId, user: model::user::User) {
+    async fn guild_member_removal(
+        &self,
+        _ctx: Context,
+        guild_id: GuildId,
+        user: model::user::User,
+    ) {
         if let Some(g) = self.guilds.write().get_mut(&guild_id) {
             g.members.remove(&user.id);
         }
     }
 
-    fn guild_member_update(&self, _ctx: Context, new: model::event::GuildMemberUpdateEvent) {
+    async fn guild_member_update(&self, _ctx: Context, new: model::event::GuildMemberUpdateEvent) {
         let guild_id = new.guild_id;
         let new = UserData::from(new);
+        let mut event = None;
         if let Some(m) = self
             .guilds
             .write()
@@ -205,7 +204,7 @@ impl EventHandler for Handler {
             .and_then(|g| g.members.get_mut(&new.id))
         {
             if m.name != new.name {
-                let _ = self.event_tx.send(Event {
+                event = Some(Event {
                     header: Some(Header {
                         client_type: ClientType::Discord.into(),
                     }),
@@ -217,9 +216,14 @@ impl EventHandler for Handler {
             }
             *m = new;
         }
+        if let Some(req) = event {
+            if let Err(e) = self.rpc_client.clone().post(req).await {
+                error!("failed to send event: {:?}", e);
+            }
+        }
     }
 
-    fn message(&self, _ctx: Context, new_message: Message) {
+    async fn message(&self, _ctx: Context, new_message: Message) {
         let span = info_span!("message");
         let _enter = span.enter();
         info!("entered");
@@ -234,22 +238,26 @@ impl EventHandler for Handler {
             return;
         }
 
+        let mut event = None;
         if let Some(ch) = self.channels.read().get_by_id(new_message.channel_id) {
-            self.event_tx
-                .blocking_send(Event {
-                    header: Some(Header {
-                        client_type: ClientType::Discord.into(),
-                    }),
-                    body: Some(event::Body::MessageCreated(MessageCreated {
-                        nickname: author_name(&self.guilds.read(), &new_message).to_owned(),
-                        channel: format!("#{}", ch.name()),
-                        content: new_message.content,
-                        origin: "".to_owned(),
-                    })),
-                })
-                .unwrap();
+            event = Some(Event {
+                header: Some(Header {
+                    client_type: ClientType::Discord.into(),
+                }),
+                body: Some(event::Body::MessageCreated(MessageCreated {
+                    nickname: author_name(&self.guilds.read(), &new_message).to_owned(),
+                    channel: format!("#{}", ch.name()),
+                    content: new_message.content,
+                    origin: "".to_owned(),
+                })),
+            });
         } else {
             info!("channel not found: {}", new_message.channel_id);
+        }
+        if let Some(req) = event {
+            if let Err(e) = self.rpc_client.clone().post(req).await {
+                error!("failed to send event: {:?}", e);
+            }
         }
     }
 }

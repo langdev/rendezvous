@@ -7,10 +7,11 @@ license = "AGPL-3.0"
 publish = false
 
 [dependencies]
+async-trait = "0.1"
 parking_lot = "0.11"
 rendezvous-common = { path = "../common" }
 
 [dependencies.serenity]
-version = "0.8"
+version = "0.10.9"
 default-features = false
 features = ["client", "gateway", "http", "model", "rustls_backend", "utils"]

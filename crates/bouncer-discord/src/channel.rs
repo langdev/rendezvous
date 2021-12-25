@@ -14,16 +14,12 @@ impl Channel {
     pub(crate) fn from_discord(channel: SerenityChannel) -> Option<Self> {
         match channel {
             SerenityChannel::Guild(ch) => {
-                let ch = ch.read();
                 if ch.kind != ChannelType::Text {
                     return None;
                 }
                 Some(Channel::Guild(ch.clone()))
             }
-            SerenityChannel::Private(ch) => {
-                let ch = ch.read();
-                Some(Channel::Private(ch.clone()))
-            }
+            SerenityChannel::Private(ch) => Some(Channel::Private(ch.clone())),
             _ => None,
         }
     }

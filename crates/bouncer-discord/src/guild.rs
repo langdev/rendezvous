@@ -24,10 +24,9 @@ impl From<Guild> for GuildData {
 impl From<Member> for UserData {
     fn from(m: Member) -> Self {
         let Member { nick, user, .. } = m;
-        let u = user.read();
         Self {
-            id: u.id,
-            name: nick.unwrap_or_else(|| u.name.clone()),
+            id: user.id,
+            name: nick.unwrap_or_else(|| user.name.clone()),
         }
     }
 }

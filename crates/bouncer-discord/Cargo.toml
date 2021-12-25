@@ -7,6 +7,7 @@ license = "AGPL-3.0"
 publish = false
 
 [dependencies]
+parking_lot = "0.11"
 rendezvous-common = { path = "../common" }
 
 [dependencies.serenity]

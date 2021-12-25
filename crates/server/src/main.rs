@@ -1,81 +1,98 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::Arc;
+
+use tokio_stream::wrappers::TcpListenerStream;
 
 use rendezvous_common::{
     anyhow,
-    data::*,
-    ipc,
-    nng::{
-        self,
-        options::{protocol::pair::Polyamorous, Options},
-        Message, Pipe, PipeEvent, Protocol, Socket,
+    futures::{
+        channel::mpsc::{self, channel},
+        prelude::*,
     },
-    parking_lot::RwLock,
-    serde_cbor,
-    tracing::{self, debug, debug_span, info, instrument, warn},
+    proto::{
+        bouncer_service_server::{BouncerService, BouncerServiceServer},
+        ClientType, Event, Header, PostResult,
+    },
+    tokio::{self, net::TcpListener, sync::Mutex},
+    tonic::{self, transport::Server, Request, Response, Status},
+    tracing::{self, debug, info, instrument, warn},
 };
+
+type BouncerMap = Arc<Mutex<HashMap<ClientType, Option<mpsc::Sender<Result<Event, Status>>>>>>;
 
 fn main() -> anyhow::Result<()> {
     tracing::init()?;
 
-    info!("Initializing...");
+    let addr = "[::1]:49252";
 
-    let bouncers = Arc::new(RwLock::default());
+    let service_impl = BouncerServiceImpl {
+        bouncers: BouncerMap::default(),
+    };
 
-    let socket = Socket::new(Protocol::Pair1)?;
-    socket.set_opt::<Polyamorous>(true)?;
+    let svc = BouncerServiceServer::new(service_impl);
 
-    let b = bouncers.clone();
-    socket.pipe_notify(move |pipe, event| handle_pipe_events(&mut b.write(), pipe, event))?;
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .build()?;
 
-    let address = ipc::address();
-    socket.listen(&address)?;
-    info!("Listening...");
+    rt.block_on(async move {
+        let listener = TcpListener::bind(addr).await?;
+        let incoming = TcpListenerStream::new(listener);
 
-    let span = debug_span!("main loop");
-    let _enter = span.enter();
+        Server::builder()
+            .add_service(svc)
+            .serve_with_incoming(incoming)
+            .await?;
+        Ok::<_, anyhow::Error>(())
+    })?;
 
-    loop {
-        let mut msg = socket.recv()?;
-        debug!("pipe: {:?}", msg.pipe());
+    Ok(())
+}
 
-        if let Ok(event) = serde_cbor::from_slice::<Event>(msg.as_slice()) {
-            debug!("Event: {:#?}", event);
-            for b in bouncers.read().iter().copied() {
-                if Some(b) == msg.pipe() {
-                    continue;
-                }
-                if let Err(e) = send_message(&socket, b, msg.as_slice()) {
-                    warn!("{}", e);
+#[derive(Debug, Default)]
+pub struct BouncerServiceImpl {
+    bouncers: BouncerMap,
+}
+
+#[tonic::async_trait]
+impl BouncerService for BouncerServiceImpl {
+    type SubscribeStream = mpsc::Receiver<Result<Event, Status>>;
+
+    #[instrument]
+    async fn post(&self, request: Request<Event>) -> Result<Response<PostResult>, Status> {
+        println!("{:?}", request);
+        debug!("{:?}", request);
+        let event = request.into_inner();
+        let header = event.header()?;
+        let mut bouncers = self.bouncers.lock().await;
+        for (b, sender) in &mut *bouncers {
+            if b == &header.client_type() {
+                continue;
+            }
+            if let Some(s) = sender {
+                if let Err(e) = s.send(Ok(event.clone())).await {
+                    if e.is_disconnected() {
+                        *sender = None;
+                        info!("Disconnected from {:?}", b);
+                    } else {
+                        warn!("{:?}: {}", b, e);
+                    }
                 }
             }
         }
+        bouncers.retain(|_, sender| sender.is_some());
+        Ok(Response::new(PostResult::new()))
     }
 
-    Ok(())
-}
-
-#[instrument]
-fn send_message(socket: &Socket, pipe: Pipe, content: &[u8]) -> Result<(), nng::Error> {
-    let mut m = Message::new();
-    m.set_pipe(pipe);
-    m.push_back(content);
-    socket.send(m)?;
-    Ok(())
-}
-
-#[instrument]
-fn handle_pipe_events(bouncers: &mut HashSet<Pipe>, pipe: Pipe, event: PipeEvent) {
-    match event {
-        PipeEvent::AddPost => {
-            info!("AddPost");
-            bouncers.insert(pipe);
-        }
-        PipeEvent::RemovePost => {
-            info!("RemovePost");
-            bouncers.remove(&pipe);
-        }
-        _ => {}
+    #[instrument]
+    async fn subscribe(
+        &self,
+        request: Request<Header>,
+    ) -> Result<Response<Self::SubscribeStream>, Status> {
+        debug!("{:?}", request);
+        let (sender, receiver) = channel(16);
+        let mut bouncers = self.bouncers.lock().await;
+        bouncers.insert(request.get_ref().client_type(), Some(sender));
+        Ok(Response::new(receiver))
     }
-    info!("Bouncers connected: {}", bouncers.len());
 }

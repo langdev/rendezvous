@@ -1,0 +1,41 @@
+syntax = "proto3";
+package org.langdev.rendezvous;
+
+message Header {
+  ClientType client_type = 1;
+}
+
+enum ClientType {
+  CLIENT_TYPE_UNKNOWN = 0;
+  CLIENT_TYPE_IRC = 1;
+  CLIENT_TYPE_DISCORD = 2;
+}
+
+message PostResult {
+}
+
+message MessageCreated {
+  string nickname = 1;
+  string channel = 2;
+  string content = 3;
+  string origin = 4;
+}
+
+message UserRenamed {
+  string old = 1;
+  string new = 2;
+}
+
+message Event {
+  Header header = 1;
+
+  oneof body {
+    MessageCreated message_created = 16;
+    UserRenamed user_renamed = 17;
+  }
+}
+
+service BouncerService {
+  rpc Post(Event) returns (PostResult);
+  rpc Subscribe(Header) returns (stream Event);
+}

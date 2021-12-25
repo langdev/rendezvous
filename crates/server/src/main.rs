@@ -1,6 +1,3 @@
-#[cfg(feature = "legacy")]
-mod legacy;
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -26,8 +23,6 @@ type BouncerMap = Arc<Mutex<HashMap<ClientType, Option<mpsc::Sender<Result<Event
 fn main() -> anyhow::Result<()> {
     tracing::init()?;
 
-    serve_legacy()?;
-
     let addr = "[::1]:49252";
 
     let service_impl = BouncerServiceImpl {
@@ -51,17 +46,6 @@ fn main() -> anyhow::Result<()> {
         Ok::<_, anyhow::Error>(())
     })?;
 
-    Ok(())
-}
-
-#[cfg(feature = "legacy")]
-fn serve_legacy() -> anyhow::Result<()> {
-    std::thread::spawn(|| crate::legacy::serve());
-    Ok(())
-}
-
-#[cfg(not(feature = "legacy"))]
-fn serve_legacy() -> anyhow::Result<()> {
     Ok(())
 }
 
